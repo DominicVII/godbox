@@ -1,0 +1,569 @@
+<!doctype html><html><head><meta charset="utf-8"><title>GODBOX EARTH</title><link rel="icon" href="data:,">
+<style>
+html,body{margin:0;background:#000;overflow:hidden;font:13px system-ui,sans-serif;color:#eee}
+canvas#gl{display:block;cursor:crosshair}
+#tb{position:fixed;left:0;right:0;bottom:0;background:#000c;padding:5px;display:flex;flex-wrap:wrap;gap:3px;justify-content:center;z-index:5}
+#tb button,.btn{background:#223;color:#eee;border:1px solid #556;padding:4px 8px;border-radius:5px;cursor:pointer;font:inherit}
+#tb button.on{background:#a8721c;border-color:#ffd77a}
+.pn{position:fixed;background:#000b;padding:8px;border-radius:6px;line-height:1.45;z-index:4}
+#hud{left:8px;top:8px;width:340px}
+#kd{left:8px;top:96px;width:340px;max-height:230px;overflow:auto;font-size:12px}
+#ins{right:8px;top:8px;width:300px;display:none;max-height:calc(100vh - 260px);overflow:auto}
+#set{right:320px;top:8px;width:270px;display:none;max-height:calc(100vh - 120px);overflow:auto;font-size:12px}
+#set input[type=range]{width:120px;vertical-align:middle}
+#log{left:8px;bottom:64px;width:400px;max-height:200px;overflow:hidden;font-size:12px}
+#mm{right:8px;bottom:64px;padding:4px}#mm canvas{display:block;cursor:pointer;border-radius:4px}
+#lbl div{position:fixed;transform:translate(-50%,-100%);font-size:11px;color:#fff;text-shadow:0 0 3px #000,0 0 2px #000;pointer-events:none;white-space:nowrap;z-index:3}
+#cx{left:50%;top:40px;transform:translateX(-50%);width:min(760px,90vw);height:min(560px,75vh);display:none;flex-direction:column;z-index:6;background:#0b0d12ee;border:1px solid #445}#cx .tabs span{display:inline-block;padding:3px 8px;cursor:pointer;opacity:.6;border-bottom:2px solid transparent}#cx .tabs span.on{opacity:1;border-color:#ffd77a}#cx .body{display:flex;flex:1;min-height:0;margin-top:6px;gap:8px}#cxl{width:42%;overflow:auto;font-size:12px}#cxl div{padding:2px 4px;cursor:pointer;border-radius:3px}#cxl div:hover,#cxl div.on{background:#2a2f3c}#cxd{flex:1;overflow:auto;font-size:12.5px;line-height:1.5}.lk{cursor:pointer;text-decoration:underline dotted}
+#tabs span{cursor:pointer;margin-right:8px;opacity:.6}#tabs span.on{opacity:1;text-decoration:underline}
+.bar{display:inline-block;height:7px;vertical-align:middle;border-radius:2px}
+</style></head><body>
+<canvas id="gl"></canvas><div id="lbl"></div>
+<div id="hud" class="pn"></div><div id="kd" class="pn"></div><div id="ins" class="pn"></div><div id="set" class="pn"></div><div id="cx" class="pn"><div><b>📖 Codex</b> <span style=opacity:.6>— click anything to read its story</span><button class=btn style=float:right id=cxx>✕</button></div><div class=tabs id=cxt></div><div style=margin-top:4px><input id=cxq placeholder="search…" style="width:200px;background:#111;color:#eee;border:1px solid #445;padding:2px 5px"></div><div class=body><div id=cxl></div><div id=cxd></div></div></div>
+<div id="log" class="pn"><div id="tabs"><span data-t="ev" class="on">Events</span><span data-t="ch">Chronicle of the god</span></div><div id="logb"></div></div>
+<div id="mm" class="pn"><canvas id="mmc" width="256" height="128"></canvas><div id="alt" style="font-size:12px;margin-top:3px"></div></div>
+<div id="tb"></div>
+<script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+let A=null,MD=null;
+try{A=await import('./godbox-assets.js')}catch(e){console.warn('godbox-assets.js unavailable, using placeholders')}
+try{MD=await import('./godbox-minds.js')}catch(e){console.warn('godbox-minds.js unavailable, using built-in minds')}
+let V=null,CU=null,GN=null;if(MD){try{[V,CU,GN]=await Promise.all([import('./godbox-civ.js'),import('./godbox-culture.js'),import('./godbox-genetics.js')])}catch(e){console.warn('civ layers unavailable',e);V=null}}
+const QS=new URLSearchParams(location.search);const CIVN=+(QS.get('people')||360),CIVRATE=+(QS.get('invent')||6);
+let civ=null;const CIV=!!V;
+
+// ================= WORLD GRID (lat/lon tiles on a sphere) =================
+const TW=320,TH=160,NT=TW*TH,R=1000,TILE=2*Math.PI*R/TW;
+const COL=['#123a6b','#2a62a6','#d8c58a','#5aa04a','#2f6e32','#7c7a5c','#9a9a9a','#c8b04a','#3a2e26','#e8eef2'];
+const COLC=COL.map(h=>new THREE.Color(h));
+const T=new Uint8Array(NT),F=new Float32Array(NT),E=new Float32Array(NT),TH_=new Float32Array(NT),OWN=new Int16Array(NT);
+let seed=1;
+const wrapX=x=>((x%TW)+TW)%TW, clampY=y=>Math.max(0,Math.min(TH-0.001,y));
+const tidx=(x,y)=>(clampY(y)|0)*TW+(wrapX(x)|0);
+const at=(x,y)=>T[tidx(x,y)];
+const land=t=>t>=2&&t!=6&&t!=9;
+const wdx=(a,b)=>{let d=b-a;d-=Math.round(d/TW)*TW;return d};
+const sinT=y=>Math.max(.15,Math.sin(clampY(y)/TH*Math.PI));
+const dist=(x1,y1,x2,y2)=>Math.hypot(wdx(x1,x2)*sinT((y1+y2)/2),y2-y1);
+function dirOf(x,y,o=new THREE.Vector3()){const ph=x/TW*2*Math.PI,th=Math.max(0,Math.min(Math.PI,y/TH*Math.PI));return o.set(-Math.cos(ph)*Math.sin(th),Math.cos(th),Math.sin(ph)*Math.sin(th))}
+function tileOfDir(v){const r=v.length();const th=Math.acos(Math.max(-1,Math.min(1,v.y/r)));let ph=Math.atan2(v.z,-v.x);if(ph<0)ph+=2*Math.PI;return{x:ph/(2*Math.PI)*TW,y:th/Math.PI*TH}}
+function h3(x,y,z){let h=Math.imul(x,374761393)+Math.imul(y,668265263)+Math.imul(z,1274126177)+Math.imul(seed,1442695041);h=Math.imul(h^(h>>>13),1274126177);return((h^(h>>>16))>>>0)/4294967296}
+function vn(x,y,z){const X=Math.floor(x),Y=Math.floor(y),Z=Math.floor(z),fx=x-X,fy=y-Y,fz=z-Z,s=t=>t*t*(3-2*t),u=s(fx),v=s(fy),w=s(fz),L=(a,b,t)=>a+(b-a)*t;
+ return L(L(L(h3(X,Y,Z),h3(X+1,Y,Z),u),L(h3(X,Y+1,Z),h3(X+1,Y+1,Z),u),v),L(L(h3(X,Y,Z+1),h3(X+1,Y,Z+1),u),L(h3(X,Y+1,Z+1),h3(X+1,Y+1,Z+1),u),v),w)*2-1}
+function fbm(x,y,z,o=5){let v=0,a=.5,f=1;for(let i=0;i<o;i++){v+=a*vn(x*f,y*f,z*f);a*=.5;f*=2.03}return v}
+function genWorld(){seed=(Math.random()*1e9)|0;F.fill(0);const d=new THREE.Vector3();
+ for(let y=0;y<TH;y++)for(let x=0;x<TW;x++){dirOf(x+.5,y+.5,d);const i=y*TW+x;let e=fbm(d.x*1.7+5,d.y*1.7,d.z*1.7)+.35*fbm(d.x*5,d.y*5,d.z*5,3)-.04,m=fbm(d.x*6+40,d.y*6,d.z*6,3);
+  E[i]=e;const lat=Math.abs(.5-(y+.5)/TH)*2;
+  T[i]=lat>.87?9:e<-.1?0:e<0?1:e<.03?2:e<.27?(m>.04?4:3):e<.4?5:6}
+ for(let i=0;i<NT;i++)tileH(i);dirtyH=dirtyC=true}
+const CY0=TH*.16,CSY=.68,c2tY=y=>CY0+y*CSY,t2cY=y=>Math.max(1,Math.min(TH-1,(y-CY0)/CSY));
+function genWorldFromCiv(cm){F.fill(0);const d=new THREE.Vector3(),gw=cm.gw,gh=cm.gh,bw=TW/gw,bh=TH/gh;
+ const isL=(bx,by)=>{bx=Math.max(0,Math.min(gw-1,bx));by=Math.max(0,Math.min(gh-1,by));return cm.terr[by*gw+bx]?1:0};
+ for(let y=0;y<TH;y++)for(let x=0;x<TW;x++){const i=y*TW+x;dirOf(x+.5,y+.5,d);const cyv=(y+.5-CY0)/CSY,fx=(x+.5)/bw-.5,fy=cyv/bh-.5,ix=Math.floor(fx),iy=Math.floor(fy),tx=fx-ix,ty=fy-iy;
+  const L=(isL(ix,iy)*(1-tx)+isL(ix+1,iy)*tx)*(1-ty)+(isL(ix,iy+1)*(1-tx)+isL(ix+1,iy+1)*tx)*ty;const nz=fbm(d.x*9,d.y*9,d.z*9,3),m=fbm(d.x*6+40,d.y*6,d.z*6,3);
+  const own=cm.terr[Math.max(0,Math.min(gh-1,(cyv/bh)|0))*gw+Math.min(gw-1,(x/bw)|0)],lat=Math.abs(.5-(y+.5)/TH)*2;const lv=(cyv<0||cyv>TH?0:L)+nz*.35;
+  if(lat>.9){T[i]=9;E[i]=.2}else if(lv<.5){T[i]=lv<.3?0:1;E[i]=-.1}else{const t=own||1;T[i]=t==4?(lv>.62?6:5):t==3?5:t==2?4:t==5?(m>.25?2:3):(m>.12?4:3);E[i]=t==4?.42+nz*.2:t==3?.3+nz*.1:.05+Math.max(0,nz)*.25;if(lv<.56&&T[i]==3)T[i]=2}}
+ for(let i=0;i<NT;i++)tileH(i);dirtyH=dirtyC=true}
+function tileH(i){const t=T[i],e=E[i];TH_[i]=t==0?-9:t==1?-2.5:t==2?.6:t==5?Math.max(5,5+(e-.27)*60):t==6?Math.max(14,14+(e-.4)*120):t==9?5:Math.max(.8,1+e*14)}
+function setT(i,v){if(T[i]==v)return;const hb=T[i];T[i]=v;dirtyC=true;if(v<2||hb<2||v==5||v==6||hb==5||hb==6||v==9){tileH(i);dirtyH=true}}
+
+// ================= RENDERER / SCENE =================
+const cv=document.getElementById('gl');
+const renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true,logarithmicDepthBuffer:true,preserveDrawingBuffer:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.setSize(innerWidth,innerHeight);
+const scene=new THREE.Scene();scene.background=new THREE.Color(0);
+const camera=new THREE.PerspectiveCamera(45,innerWidth/innerHeight,.3,1e6);
+onresize=()=>{renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix()};
+scene.fog=new THREE.Fog(0x000000,1e6,2e6);
+const sun=new THREE.DirectionalLight(0xfff2dd,2.6);scene.add(sun,sun.target);
+const hemi=new THREE.HemisphereLight(0x8899bb,0x221a10,.25);scene.add(hemi);
+const sunDir=new THREE.Vector3(1,.2,0);let sunLock=null;
+const W1=TW+1,NV=W1*(TH+1);
+const tg=new THREE.BufferGeometry(),tpos=new Float32Array(NV*3),tcol=new Float32Array(NV*3),VH=new Float32Array(NV);
+{const idx=[];for(let iy=0;iy<TH;iy++)for(let ix=0;ix<TW;ix++){const a=iy*W1+ix+1,b=iy*W1+ix,c=(iy+1)*W1+ix,d=(iy+1)*W1+ix+1;if(iy!==0)idx.push(a,b,d);if(iy!==TH-1)idx.push(b,c,d)}
+ tg.setIndex(idx);tg.setAttribute('position',new THREE.BufferAttribute(tpos,3));tg.setAttribute('color',new THREE.BufferAttribute(tcol,3))}
+const terrain=new THREE.Mesh(tg,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.95,metalness:0}));scene.add(terrain);
+const ocean=new THREE.Mesh(new THREE.SphereGeometry(R,160,80),new THREE.MeshStandardMaterial({color:0x1b4a86,roughness:.25,metalness:.1,transparent:true,opacity:.82}));scene.add(ocean);
+let dirtyH=true,dirtyC=true,treesDirty=true;
+function vtiles(ix,iy,f){const x0=(ix-1+TW)%TW,x1=ix%TW,y0=Math.max(0,iy-1),y1=Math.min(TH-1,iy);f(y0*TW+x0);f(y0*TW+x1);f(y1*TW+x0);f(y1*TW+x1)}
+function rebuildHeights(){const d=new THREE.Vector3();for(let iy=0;iy<=TH;iy++)for(let ix=0;ix<=TW;ix++){let s=0,mn=99;vtiles(ix,iy,i=>{s+=TH_[i];mn=Math.min(mn,TH_[i])});let h=s/4;if(mn<0&&h>0)h=Math.min(h,.3);const v=iy*W1+ix;VH[v]=h;dirOf(ix,iy,d).multiplyScalar(R+h);tpos[v*3]=d.x;tpos[v*3+1]=d.y;tpos[v*3+2]=d.z}
+ tg.attributes.position.needsUpdate=true;tg.computeVertexNormals();const n=tg.attributes.normal.array;for(let iy=0;iy<=TH;iy++){const a=iy*W1,b=a+TW;for(let k=0;k<3;k++){const m=(n[a*3+k]+n[b*3+k])/2;n[a*3+k]=n[b*3+k]=m}}
+ tg.computeBoundingSphere();dirtyH=false;treesDirty=true;houseVer++}
+const tc=new Float32Array(NT*3),_c=new THREE.Color();let ownColors=null;
+function rebuildColors(){const tint=Math.min(civ?.3:.55,Math.max(.1,(cam.alt-150)/2500));
+ for(let i=0;i<NT;i++){const t=T[i];let c=COLC[t];const v=1+(((i*2654435761)>>>0)%9-4)*.012;let r=c.r*v,g=c.g*v,b=c.b*v;
+  if(F[i]>0){r=1;g=.35;b=.05}else if(OWN[i]>0&&t>1){const kc=ownColors?ownColors[OWN[i]-1]:kings[OWN[i]-1]&&kings[OWN[i]-1].c;if(kc){_c.set(kc);const x=i%TW,y=(i/TW)|0;const edge=[OWN[y*TW+(x+1)%TW],OWN[y*TW+(x+TW-1)%TW],OWN[Math.min(TH-1,y+1)*TW+x],OWN[Math.max(0,y-1)*TW+x]].some(o=>o!==OWN[i]);const s=edge?Math.min(.9,tint*2.2):tint;r+=(_c.r-r)*s;g+=(_c.g-g)*s;b+=(_c.b-b)*s}}
+  tc[i*3]=r;tc[i*3+1]=g;tc[i*3+2]=b}
+ for(let iy=0;iy<=TH;iy++)for(let ix=0;ix<=TW;ix++){let r=0,g=0,b=0;vtiles(ix,iy,i=>{r+=tc[i*3];g+=tc[i*3+1];b+=tc[i*3+2]});const v=(iy*W1+ix)*3;tcol[v]=r/4;tcol[v+1]=g/4;tcol[v+2]=b/4}
+ tg.attributes.color.needsUpdate=true;dirtyC=false}
+function heightAt(x,y){x=wrapX(x);y=Math.max(0,Math.min(TH,y));const ix=Math.floor(x),iy=Math.min(TH-1,Math.floor(y)),fx=x-ix,fy=y-iy,a=VH[iy*W1+ix],b=VH[iy*W1+ix+1],c=VH[(iy+1)*W1+ix],d=VH[(iy+1)*W1+ix+1];return(a*(1-fx)+b*fx)*(1-fy)+(c*(1-fx)+d*fx)*fy}
+function surf(x,y,lift=0,o=new THREE.Vector3()){return dirOf(x,y,o).multiplyScalar(R+Math.max(0,heightAt(x,y))+lift)}
+const LDV='#include <common>\n#include <logdepthbuf_pars_vertex>\n',LDF='#include <common>\n#include <logdepthbuf_pars_fragment>\n';
+const atmo=new THREE.Mesh(new THREE.SphereGeometry(R*1.045,96,48),new THREE.ShaderMaterial({side:THREE.BackSide,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,uniforms:{uSun:{value:sunDir}},
+ vertexShader:LDV+'varying vec3 vN;varying vec3 vP;varying vec3 vW;void main(){vN=normalize(normalMatrix*normal);vec4 mv=modelViewMatrix*vec4(position,1.);vP=mv.xyz;vW=normalize(position);gl_Position=projectionMatrix*mv;\n#include <logdepthbuf_vertex>\n}',
+ fragmentShader:LDF+'uniform vec3 uSun;varying vec3 vN;varying vec3 vP;varying vec3 vW;void main(){\n#include <logdepthbuf_fragment>\nfloat rim=1.-abs(dot(normalize(-vP),vN));float I=pow(rim,2.5)*1.3;float day=clamp(dot(vW,uSun)*1.2+.35,0.,1.);gl_FragColor=vec4(vec3(.3,.58,1.)*I*day,1.);}'}));
+scene.add(atmo);
+{const n=5000,p=new Float32Array(n*3),c=new Float32Array(n*3);for(let i=0;i<n;i++){const v=new THREE.Vector3().randomDirection().multiplyScalar(4e5);p.set([v.x,v.y,v.z],i*3);const b=.5+Math.random()*.5;c.set([b,b,b*(.9+Math.random()*.2)],i*3)}
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(p,3));g.setAttribute('color',new THREE.BufferAttribute(c,3));scene.add(new THREE.Points(g,new THREE.PointsMaterial({size:1.6,sizeAttenuation:false,vertexColors:true,fog:false})))}
+const sunMesh=new THREE.Mesh(new THREE.SphereGeometry(5000,24,12),new THREE.MeshBasicMaterial({color:0xfff4d0,fog:false}));scene.add(sunMesh);
+function glowTex(){const c=document.createElement('canvas');c.width=c.height=64;const g=c.getContext('2d'),gr=g.createRadialGradient(32,32,0,32,32,32);gr.addColorStop(0,'rgba(255,255,255,1)');gr.addColorStop(.3,'rgba(255,255,255,.5)');gr.addColorStop(1,'rgba(255,255,255,0)');g.fillStyle=gr;g.fillRect(0,0,64,64);return new THREE.CanvasTexture(c)}
+const GT=glowTex();const sunGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:GT,color:0xffe9b0,fog:false,depthWrite:false,blending:THREE.AdditiveBlending}));sunGlow.scale.setScalar(60000);scene.add(sunGlow);
+const MAXH=6000;const cityG=new THREE.BufferGeometry();const cityP=new Float32Array(MAXH*3);cityG.setAttribute('position',new THREE.BufferAttribute(cityP,3));const cityE=new Float32Array(MAXH);cityG.setAttribute('aE',new THREE.BufferAttribute(cityE,1));cityG.setDrawRange(0,0);
+const cityM=new THREE.ShaderMaterial({transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,uniforms:{uSun:{value:sunDir},uA:{value:1},uTex:{value:GT}},
+ vertexShader:LDV+'uniform vec3 uSun;attribute float aE;varying float vL;varying float vE;void main(){vE=aE;vL=smoothstep(.08,-.18,dot(normalize(position),uSun));vec4 mv=modelViewMatrix*vec4(position,1.);gl_PointSize=clamp(9000./-mv.z,3.,14.)*(1.+aE*1.2);gl_Position=projectionMatrix*mv;\n#include <logdepthbuf_vertex>\n}',
+ fragmentShader:LDF+'uniform float uA;uniform sampler2D uTex;varying float vL;varying float vE;void main(){\n#include <logdepthbuf_fragment>\nfloat a=texture2D(uTex,gl_PointCoord).a*vL*uA*(.7+vE*.8);gl_FragColor=vec4(mix(vec3(1.,.7,.35),vec3(1.,.95,.8),vE)*a,a);}'});
+const city=new THREE.Points(cityG,cityM);city.frustumCulled=false;scene.add(city);
+
+// ================= ASSET ADAPTER (godbox-assets.js, else placeholders) =================
+const S_AS=3;
+function colGeo(g,c){g=g.index?g.toNonIndexed():g;g.deleteAttribute('uv');const n=g.attributes.position.count,a=new Float32Array(n*3);_c.set(c);for(let i=0;i<n;i++)a.set([_c.r,_c.g,_c.b],i*3);g.setAttribute('color',new THREE.BufferAttribute(a,3));return g}
+const fbMat=new THREE.MeshStandardMaterial({vertexColors:true,flatShading:true,roughness:.85});
+const AS=A?{
+ house:(era,c,s)=>A.buildHouse({era,roofColor:new THREE.Color(c).getHex(),seed:s}),
+ temple:c=>A.buildTemple({roofColor:new THREE.Color(c).getHex()}),
+ tree:(sp,s)=>A.buildTree({species:sp,seed:s}),
+ farm:()=>A.buildFarmPlot({size:6,crop:'wheat',growth:1}),
+ crowd:n=>{const h=A.buildHuman();const m=A.createAnimatedInstances(h,n);m.userData.upd=t=>h.update(t);return m},
+ anim:(m,i,s,ph,c,sk,hr)=>A.setInstanceAnim(m,i,{state:s,phase:ph,color:c,skin:sk,hair:hr}),
+ flag:m=>m.userData.flagAnim(),ANIM:A.ANIM,real:true
+}:{
+ house:(era,c)=>({geometry:mergeGeometries([colGeo(new THREE.BoxGeometry(2.6,1.8,2.2).translate(0,.9,0),0x8a6a44),colGeo(new THREE.ConeGeometry(2.1,1.4,4).rotateY(Math.PI/4).translate(0,2.5,0),c)]),material:fbMat}),
+ temple:c=>({geometry:mergeGeometries([colGeo(new THREE.BoxGeometry(5,3,7).translate(0,1.5,0),0xe9e2cf),colGeo(new THREE.ConeGeometry(4.5,2.5,4).rotateY(Math.PI/4).translate(0,4.2,0),c)]),material:fbMat}),
+ tree:(sp)=>({geometry:mergeGeometries([colGeo(new THREE.CylinderGeometry(.15,.2,1.2,5).translate(0,.6,0),0x5a3d22),colGeo(sp=='pine'?new THREE.ConeGeometry(1.1,3,6).translate(0,2.6,0):new THREE.IcosahedronGeometry(1.3).translate(0,2.2,0),sp=='pine'?0x1f5a2a:0x3c8a36)]),material:fbMat}),
+ farm:()=>({geometry:colGeo(new THREE.BoxGeometry(6,.15,6).translate(0,.07,0),0xc8b04a),material:fbMat}),
+ crowd:n=>{const g=mergeGeometries([colGeo(new THREE.CylinderGeometry(.22,.28,1.1,6).translate(0,.75,0),0xffffff),colGeo(new THREE.SphereGeometry(.22,8,6).translate(0,1.5,0),0xf1c9a5)]);const m=new THREE.InstancedMesh(g,new THREE.MeshStandardMaterial({vertexColors:true,flatShading:true}),n);m.frustumCulled=false;for(let i=0;i<n;i++)m.setColorAt(i,new THREE.Color(1,1,1));m.userData.upd=()=>{};return m},
+ anim:(m,i,s,ph,c)=>m.setColorAt(i,_c.set(c)),flag:m=>{if(m.instanceColor)m.instanceColor.needsUpdate=true},ANIM:{IDLE:0,WALK:1,PRAY:2,FIGHT:3},real:false};
+function IM(asset,n){const m=new THREE.InstancedMesh(asset.geometry,asset.material,n);m.count=0;m.frustumCulled=false;scene.add(m);return m}
+const _m=new THREE.Matrix4(),_up=new THREE.Vector3(),_fw=new THREE.Vector3(),_rt=new THREE.Vector3();
+function orientAt(pos,fwd,s){_up.copy(pos).normalize();_fw.copy(fwd).addScaledVector(_up,-fwd.dot(_up));if(_fw.lengthSq()<1e-8)_fw.set(0,1,0).cross(_up);_fw.normalize();_rt.crossVectors(_up,_fw);_m.makeBasis(_rt.multiplyScalar(s),_up.multiplyScalar(s),_fw.multiplyScalar(s));_m.setPosition(pos);return _m}
+function northAt(x,y,o=new THREE.Vector3()){const a=dirOf(x,Math.max(0,y-.05)),b=dirOf(x,Math.min(TH,y+.05));return o.subVectors(a,b).normalize()}
+function fwdHeading(x,y,h,o=new THREE.Vector3()){northAt(x,y,o);return o.applyAxisAngle(dirOf(x,y),h)}
+const KC=['#e33','#39f','#fd3','#c3f','#3fc','#f93','#fff','#f6a'];
+const ERAS=['hut','timber','stone'];const houseMeshes={};const templeMeshes={};
+function houseMesh(c,era){const k=c+'_'+era;return houseMeshes[k]||(houseMeshes[k]=IM(AS.house(era,c,c.length*7+1),1500))}
+function templeMesh(c){return templeMeshes[c]||(templeMeshes[c]=IM(AS.temple(c),40))}
+const treeOak=IM(AS.tree('oak',3),9000),treePine=IM(AS.tree('pine',5),9000),farmIM=IM(AS.farm(),6000);
+const MAXP=2500;const crowd=AS.crowd(MAXP);crowd.count=0;scene.add(crowd);
+const roadG=new THREE.BufferGeometry();const roadP=new Float32Array(60000*3);roadG.setAttribute('position',new THREE.BufferAttribute(roadP,3));roadG.setDrawRange(0,0);
+const roads=new THREE.LineSegments(roadG,new THREE.LineBasicMaterial({color:0xb79a6a}));roads.frustumCulled=false;scene.add(roads);
+
+// ================= PARTICLES & FX =================
+const NPART=6000;const pg=new THREE.BufferGeometry(),pp=new Float32Array(NPART*3),pc=new Float32Array(NPART*3);pg.setAttribute('position',new THREE.BufferAttribute(pp,3));pg.setAttribute('color',new THREE.BufferAttribute(pc,3));
+const parts=[];const pts=new THREE.Points(pg,new THREE.PointsMaterial({size:2.2,map:GT,vertexColors:true,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));pts.frustumCulled=false;scene.add(pts);
+function emit(pos,vel,life,col,kind){if(parts.length>=NPART)parts.shift();parts.push({p:pos.clone(),v:vel.clone(),l:life,L:life,c:new THREE.Color(col),k:kind})}
+const fx=[];
+function lightningFX(x,y,color=0xddeeff){const g=surf(x,y),up=g.clone().normalize(),pts2=[];const side=new THREE.Vector3().randomDirection().cross(up).normalize(),side2=side.clone().cross(up);
+ for(let i=0;i<=14;i++){const t=i/14;pts2.push(g.clone().addScaledVector(up,260*(1-t)).addScaledVector(side,(Math.random()-.5)*30*(1-t)).addScaledVector(side2,(Math.random()-.5)*30*(1-t)))}pts2[14]=g.clone();
+ const l=new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts2),new THREE.LineBasicMaterial({color,transparent:true,blending:THREE.AdditiveBlending,fog:false}));scene.add(l);
+ const pl=new THREE.PointLight(0xaaccff,6000,400,1.5);pl.position.copy(g).addScaledVector(up,40);scene.add(pl);fx.push({o:[l,pl],t:.35});
+ for(let i=0;i<40;i++)emit(g,new THREE.Vector3().randomDirection().multiplyScalar(20).addScaledVector(up,15),.6,0xffeeaa,'spark')}
+const meteors=[];
+function meteorFX(x,y){const g=surf(x,y),up=g.clone().normalize(),side=new THREE.Vector3().randomDirection().cross(up).normalize();const from=g.clone().addScaledVector(up,900).addScaledVector(side,900);
+ const head=new THREE.Mesh(new THREE.SphereGeometry(4,10,8),new THREE.MeshBasicMaterial({color:0xffddaa,fog:false}));const tail=new THREE.Line(new THREE.BufferGeometry().setFromPoints([from,from]),new THREE.LineBasicMaterial({color:0xffaa55,fog:false}));scene.add(head,tail);meteors.push({x,y,from,to:g,t:0,head,tail})}
+function rainFX(x,y){fx.push({rain:{x,y},t:3,o:[]})}
+function explode(g){const up=g.clone().normalize();for(let i=0;i<500;i++){const v=new THREE.Vector3().randomDirection().multiplyScalar(30+Math.random()*60).addScaledVector(up,40);emit(g,v,1+Math.random()*1.5,Math.random()<.5?0xff8833:0xffdd66,'fire')}
+ for(let i=0;i<200;i++)emit(g.clone().addScaledVector(up,5),new THREE.Vector3().randomDirection().multiplyScalar(12).addScaledVector(up,20),4,0x554c44,'smoke');const pl=new THREE.PointLight(0xff9944,40000,1200,1.2);pl.position.copy(g).addScaledVector(up,60);scene.add(pl);fx.push({o:[pl],t:.8})}
+
+// ================= MINDS ADAPTER =================
+// API used by the sim: reset, create(p), tick(days), sync(p), notify(ev,people?), respond(p,text)->{obey,reply,kind},
+// describe(p), kill(p,killer), gc(), save()/load(str,P), faithOf(p), god(p), gods(), smite(id,x,y), tuning
+let MW=null;
+const mind=MD?{
+ reset(){MW=MD.createWorldMinds((Math.random()*1e9)|0,{width:TW,height:TH,gods:3})},
+ create(p){p.mind=MD.createMind({id:p.id,name:p.name.split(' ')[0],x:p.x,y:p.y,age:p.age|0,group:p.k?p.k.id:0,faith:p.faith,traits:{kindness:p.kind}});MD.addMind(MW,p.mind)},
+ tick(dt){const acts=MD.tick(MW,{cell:6,food:m=>{const p=byId.get(m.id);return p&&p.k?Math.min(1,p.k.food/40):.3},danger:m=>{const p=byId.get(m.id);return p?(F[tidx(p.x,p.y)]>0?1:p.sick?.5:0):0},shelter:m=>{const p=byId.get(m.id);return p&&p.k?Math.min(1,(p.k.houses||[]).length/Math.max(1,p.k.pop/2)):0}},dt);for(const a of acts){const p=byId.get(a.id);if(p){p.intent=a.action;p.itarget=a.target}}},
+ sync(p){const m=p.mind;if(!m)return;m.x=p.x;m.y=p.y;m.age=p.age|0;m.group=p.k?p.k.id:m.group;m.needs.hunger=Math.min(1,p.hunger/100);p.faith=m.faith},
+ notify(ev,list){if(!MW)return;if(civ){if(ev.x!=null||ev.type=='flood'){const out=V.godAct(civ,MW,{...ev,y:ev.y!=null?t2cY(ev.y):ev.y,radius:ev.radius||10});(out||[]).forEach(e=>e&&e.text&&log('🏛 '+e.text))}return}if(list)MD.notify(list.map(p=>p.mind).filter(Boolean),ev,MW);else MD.notify(MW,ev)},
+ respond(p,t){return MD.respond(p.mind,t)},
+ describe(p){return p.mind?MD.describe(p.mind,MW):''},
+ kill(p,killer){if(!p.mind)return;if(civ){civKill(p);return}p.mind.alive=false;MD.notify(near(p.x,p.y,10).map(o=>o.mind).filter(Boolean),{type:'death',about:p.id,killer:killer?killer.id:undefined},MW)},
+ gc(){if(civ)return;MW.minds=MW.minds.filter(m=>m.alive);for(const[k,m]of MW.byId)if(!m.alive)MW.byId.delete(k)},
+ save(){return MD.serialize(MW)},load(s,P){MW=MD.deserialize(s);for(const p of P)p.mind=MW.byId.get(p.id)},
+ faithOf(p){return p.mind?p.mind.faithState:''},
+ god(p){return p.mind&&MD.allegianceName?MD.allegianceName(p.mind,MW):null},
+ godId(p){return p.mind?p.mind.allegiance:null},
+ gods(){const a=MD.aggregates(MW);return{followers:a.followers||{},byGod:a.byGod||{},gods:MW.gods||[]}},
+ smite(id,x,y){if(MD.smiteGod)MD.smiteGod(MW,id,{x,y,radius:25})},
+ tuning:MD.TUNING||null,real:true
+}:{reset(){},create(){},tick(){},sync(){},notify(){},respond(p){const ob=Math.random()<p.faith*.8+.1;return{obey:ob,reply:ob?'As you say.':'I will choose for myself.'}},describe(){return''},kill(){},gc(){},save(){return''},load(){},
+ faithOf(p){return p.faith>.7?'devout':p.faith>.4?'believer':'doubter'},god(){return null},godId(){return null},gods(){return{followers:{},byGod:{},gods:[]}},smite(){},tuning:null,real:false};
+
+// ================= SIMULATION (port of godbox.html onto the sphere) =================
+const FN=['Ada','Bram','Cyra','Dov','Elin','Faro','Gale','Hesk','Ira','Jun','Kael','Lio','Mara','Nils','Oren','Pia','Quin','Rhea','Sol','Tam','Uma','Vex','Wren','Yara','Zev','Abel','Noor','Silas','Tova','Ezra'];
+let kings=[],P=[],houses=[],logs=[],chron=[],yr=0,nextId=1,nextK=1,sel=null,speed=.25,ages=0,byId=new Map(),houseVer=0,simT=0,paused=false;
+function J(p,s){if(!p.life||p.life[p.life.length-1]===s)return;p.life.push(`Year ${yr|0}: ${s}`);if(p.life.length>40)p.life.splice(1,1)}
+let logTab='ev',histAll=[],fallen=[];
+function renderLog(){document.getElementById('logb').innerHTML=(logTab=='ev'?logs:chron.slice(0,14)).join('<br>')}
+function log(s){histAll.unshift({y:yr|0,s,god:0});if(histAll.length>2000)histAll.length=2000;logs.unshift(`<b>Year ${yr|0}</b> ${s}`);logs.length=Math.min(logs.length,14);renderLog()}
+function chronicle(s){histAll.unshift({y:yr|0,s,god:1});civEvent&&civEvent({type:'god',text:s,year:yr|0,tool});chron.unshift(`<b>Year ${yr|0}</b> ${s}`);if(chron.length>300)chron.length=300;renderLog()}
+document.querySelectorAll('#tabs span').forEach(s=>s.onclick=()=>{logTab=s.dataset.t;document.querySelectorAll('#tabs span').forEach(o=>o.classList.toggle('on',o===s));renderLog()});
+function person(x,y,k,par){let p={id:nextId++,x:wrapX(x),y:clampY(y),tx:0,ty:0,name:FN[Math.random()*FN.length|0],age:par?0:16+Math.random()*10,hunger:0,hp:100,k,str:.5+Math.random(),kind:Math.random(),faith:Math.random()*.5,job:'wander',thought:par?'I was just born.':'I am alive.',kids:0,kills:0,life:[],ph:Math.random()*9,born:yr};
+ p.tx=p.x;p.ty=p.y;p.life.push(par?`Born to ${par.name.split(' ')[0]}.`:'Came into the world.');if(par){p.name+=' child of '+par.name.split(' ')[0];p.par=[par.id];const sp=par.mind&&par.mind.spouse;if(sp!=null)p.par.push(sp);for(const id of p.par){const q=byId.get(id);if(q)(q.ch||(q.ch=[])).push(p.id)}}P.push(p);byId.set(p.id,p);mind.create(p);return p}
+function kingdom(){let k={id:nextK++,ci:kings.length%8,name:['Aur','Bel','Cor','Dun','Esk','Far','Gol','Hav','Ith','Jor','Kel','Lum'][Math.random()*12|0]+['ia','oth','mar','heim','ane','os'][Math.random()*6|0],food:30,wood:10,war:new Set(),pop:0,houses:[],founded:yr|0};k.c=KC[k.ci];kings.push(k);return k}
+function spawnTribe(x,y,n=4){let k=kingdom();for(let i=0;i<n;i++)person(x+Math.random()*2,y+Math.random()*2,k);log(`The tribe of <span style=color:${k.c}>${k.name}</span> appears.`);return k}
+function randLand(t=3){let x,y,n=0;do{x=Math.random()*TW;y=TH*.2+Math.random()*TH*.6}while(at(x,y)!=t&&n++<20000);return[x,y]}
+function newWorld(){kings=[];P=[];houses=[];byId=new Map();yr=0;sel=null;follow=false;fallen.length=0;ages++;houseVer++;
+ if(CIV){civStart()}else{civ=null;genWorld();mind.reset();for(let i=0;i<3;i++){const[x,y]=randLand();spawnTribe(x,y,5)}}
+ const k0=P[0];cam.tx=k0.x;cam.ty=k0.y;cam.alt=2600;log(ages>1?'Let there be a new world.':'The world begins.');chronicle(`World ${ages} was made by your hand.`)}
+function near(x,y,r){return P.filter(p=>dist(p.x,p.y,x,y)<r)}
+function moveToward(p,dt){const dx=wdx(p.x,p.tx),dy=p.ty-p.y,s0=sinT(p.y),d=Math.hypot(dx*s0,dy);if(d>.01){const s=Math.min(d,dt*.06);let nx=wrapX(p.x+dx*s/d),ny=clampY(p.y+dy*s/d);if(land(at(nx,ny))||!land(at(p.x,p.y))){p.x=nx;p.y=ny;p.moving=true}else{p.tx=p.x;p.ty=p.y;p.moving=false}}else p.moving=false}
+function decide(p){ // on arrival; the mind module's intent (p.intent) steers the choice
+ const k=p.k,it=p.intent;p.intent=null;
+ let foes=k?P.filter(o=>o.k&&k.war.has(o.k)&&dist(o.x,o.y,p.x,p.y)<8):[];
+ if(it=='fight'){const o=byId.get(p.itarget);if(o&&dist(o.x,o.y,p.x,p.y)<10)foes=[o,...foes]}
+ if(foes.length&&p.age>14&&(it=='fight'||p.kind<.85)&&it!='flee'){let f=foes[0];p.tx=f.x;p.ty=f.y;p.job='fight';p.thought=k&&f.k&&k.war.has(f.k)?`For ${k.name}!`:`${f.name.split(' ')[0]} wronged me.`;return}
+ if(it=='flee'){p.tx=p.x+(Math.random()-.5)*12;p.ty=p.y+(Math.random()-.5)*8;p.job='flee';p.thought='I must get away from here.';return}
+ if(it=='offer'){const g=mind.god(p);p.job='offer';p.thought=`I leave an offering for ${g||'the spirits'}.`;p.tx=p.x;p.ty=p.y;p.restT=.12;if(k&&k.food>1)k.food-=1;J(p,`Made an offering to ${g||'the spirits'}.`);return}
+ if(it=='preach'){const g=mind.god(p);p.job='preach';p.thought=`Listen! ${g?g[0].toUpperCase()+g.slice(1):'The god'} is the one we must follow.`;p.tx=p.x;p.ty=p.y;p.restT=.15;near(p.x,p.y,2).forEach(o=>{if(o!==p&&o.restT<=0&&o.job!='fight'){o.tx=p.x+(Math.random()-.5)*.8;o.ty=p.y+(Math.random()-.5)*.8}});return}
+ if(p.hunger>50){if(k&&k.food>2){k.food-=2;p.hunger=0;p.thought='Ate from the stores.';p.job='eat'}else{let fx=p.x+(Math.random()-.5)*10,fy=p.y+(Math.random()-.5)*7;p.tx=fx;p.ty=fy;p.job='forage';const t=at(fx,fy);if(land(t)&&(t==4||t==7||Math.random()<.5)){p.hunger=Math.max(0,p.hunger-50);if(k)k.food+=1;p.thought='Found something to eat.'}}return}
+ if(!k){let ok=P.find(o=>o.k&&dist(o.x,o.y,p.x,p.y)<7);if(ok&&Math.random()<.3&&it!='found'){p.k=ok.k;p.thought=`I'll join ${ok.k.name}.`;J(p,`Joined ${ok.k.name}.`)}else if((it=='found'||P.filter(o=>!o.k&&dist(o.x,o.y,p.x,p.y)<3).length>=2)&&Math.random()<.08){let nk=kingdom();near(p.x,p.y,3).filter(o=>!o.k).forEach(o=>o.k=nk);p.k=nk;J(p,`Founded ${nk.name}.`);log(`Wanderers founded <span style=color:${nk.c}>${nk.name}</span>.`)}else{p.tx=p.x+(Math.random()-.5)*8;p.ty=p.y+(Math.random()-.5)*6;p.job='wander'}return}
+ let r=Math.random(),mine=k.houses,pop=k.pop,cx=k.cx??p.x,cy=k.cy??p.y;
+ if(!civ&&p.age>18&&p.age<45&&k.food>10&&pop<mine.length*4+4&&Math.random()<((it=='marry'||it=='court'||(p.mind&&p.mind.spouse))?.12:.03))r=.715;
+ if(it=='work')r=at(p.x,p.y)==4?.1:.65;else if(it=='build')r=.3;else if(it=='farm')r=at(p.x,p.y)==7?.65:.5;else if(it=='marry'||it=='court')r=.715;else if(it=='pray')r=.745;else if(it=='rest'){p.job='rest';p.thought='Resting a while.';p.tx=p.x;p.ty=p.y;p.restT=.08;return}else if(it=='migrate'||it=='wander')r=.95;
+ if(r<.25&&at(p.x,p.y)==4){k.wood+=2;p.job='chop';p.thought='Cutting wood.';if(Math.random()<.2)setT(tidx(p.x,p.y),3)}
+ else if(r<.45&&k.wood>=5&&mine.length<pop/2+1){let hx=wrapX(cx+(Math.random()-.5)*6),hy=cy+(Math.random()-.5)*5;if(land(at(hx,hy))&&at(hx,hy)!=7&&!houses.some(h=>dist(h.x,h.y,hx,hy)<.6)){houses.push({x:hx,y:hy,k,rot:Math.random()*6.28,seed:Math.random()*1e6|0});houseVer++;k.wood-=5;p.job='build';p.thought='Built a home for my people.';J(p,'Built a home.');if(!k.firstHome){k.firstHome=1;log(`<span style=color:${k.c}>${k.name}</span> builds its first home.`)}}}
+ else if(r<.6&&at(p.x,p.y)==3&&dist(p.x,p.y,cx,cy)<7){setT(tidx(p.x,p.y),7);p.job='farm';p.thought='Planting the fields.'}
+ else if(r<.7&&at(p.x,p.y)==7){k.food+=3;p.job='harvest';p.thought='A good harvest.'}
+ else if(r<.73&&!civ&&p.age>18&&p.age<45&&k.food>10&&pop<mine.length*4+4){let c=person(p.x,p.y,k,p);births++;k.food-=5;p.kids++;p.thought=`My child ${c.name.split(' ')[0]} was born.`;J(p,`Had a child, ${c.name.split(' ')[0]}.`);mind.notify({type:'birth',about:c.id},near(p.x,p.y,3))}
+ else if(r<.76&&(p.faith>.6||it=='pray')){p.job='pray';const g=mind.god(p);p.thought=g&&g!='the true god'&&g!='no god'?`I pray to ${g}.`:['Are you there? We know you\'re watching.','Thank you for this day.','Why did you let them die?','Speak to us again.'][Math.random()*4|0];p.tx=p.x;p.ty=p.y;p.restT=.1}
+ else{let ox=r<.9?cx:p.x,oy=r<.9?cy:p.y;p.tx=ox+(Math.random()-.5)*(r<.9?10:16);p.ty=oy+(Math.random()-.5)*(r<.9?7:10);p.job=r<.9?'wander':'explore'}}
+let mindAcc=0,burning=[],deathCauses={},births=0;
+function step(dt){yr+=dt*.05;simT+=dt;
+ for(let i=0;i<1600;i++){let j=Math.random()*NT|0;const t=T[j];if(F[j]>0){F[j]-=.03;dirtyC=true;if(t==4||t==3||t==7){if(Math.random()<.3){const x=j%TW,y=(j/TW)|0,d=Math.random()*4|0;const n=d<2?y*TW+(x+(d?1:TW-1))%TW:Math.max(0,Math.min(TH-1,y+(d==2?1:-1)))*TW+x;if((T[n]==4||T[n]==3||T[n]==7)&&F[n]<=0)F[n]=1}}if(F[j]<=0&&t>1&&t!=6&&t!=9)setT(j,8)}else if(t==8&&Math.random()<.01)setT(j,3);else if(t==3&&Math.random()<.0005)setT(j,4)}
+ const hl=houses.length;houses=houses.filter(h=>!(F[tidx(h.x,h.y)]>0)&&land(at(h.x,h.y)));if(houses.length!=hl)houseVer++;
+ for(const k of kings){k.houses=[];k.pop=0}for(const h of houses)h.k.houses.push(h);for(const p of P)if(p.k)p.k.pop++;
+ for(const k of kings){const m=k.houses;if(m.length){let sx=0,sy=0;const r=m[0].x;for(const h of m){sx+=wdx(r,h.x);sy+=h.y}k.cx=wrapX(r+sx/m.length);k.cy=sy/m.length}else{const q=P.find(p=>p.k===k);if(q){k.cx=q.x;k.cy=q.y}}}
+ if(HK.layer&&HK.layer.tick){try{HK.layer.tick(dt*.05,window.GB)}catch(e){console.warn('civ tick',e)}}
+ if(civ)civTick(dt);else{mindAcc+=dt;if(mindAcc>2){P.forEach(mind.sync);mind.tick(mindAcc*.05*12);mindAcc=0}}
+ for(const p of P){if(!civ)p.age+=dt*.05;p.hunger+=dt*.04*(p.sick?2:1);if(p.sick){p.hp-=dt*.15;p.cause='plague';if(Math.random()<.02)near(p.x,p.y,1).forEach(o=>o.sick=1);if(Math.random()<.002)p.sick=0}
+  const tt=at(p.x,p.y);if(!land(tt)&&tt<2){p.hp-=dt*2;p.cause='drowned'}
+  if(F[tidx(p.x,p.y)]>0){p.hp-=dt*3;p.cause='burned';p.thought='Fire! Run!';p.tx=p.x+(Math.random()-.5)*10;p.ty=p.y+(Math.random()-.5)*8;p.restT=0}
+  if(p.hunger>100){if(!civ)p.hp-=dt*.3;p.cause='starvation';p.thought='So hungry...'}if(!civ&&p.age>60+p.str*25){p.hp=0;p.cause='old age'}
+  if(p.restT>0)p.restT-=dt*.05;
+  else if(dist(p.x,p.y,p.tx,p.ty)<.3){decide(p);if(!land(at(p.tx,p.ty))){p.tx=p.x;p.ty=p.y}}
+  moveToward(p,dt);
+  const k=p.k;if(p.job=='fight')for(const o of P)if(o!==p&&(o.k&&k&&k.war.has(o.k)||o.id===p.itarget)&&dist(o.x,o.y,p.x,p.y)<.5){const war=o.k&&k&&k.war.has(o.k);if(!war&&o.hp<40){p.job='wander';p.thought=`${o.name.split(' ')[0]} has learned a lesson.`;continue}o.hp-=dt*p.str*2;o.cause=`killed by ${p.name} of ${k?k.name:'no kingdom'}`;o.killer=p;if(o.hp<=0&&!o.counted){o.counted=1;p.kills++;p.thought=`I killed ${o.name.split(' ')[0]}. God forgive me.`;J(p,`Killed ${o.name} in battle.`)}}}
+ let dead=P.filter(p=>p.hp<=0);if(dead.length>2)log(`${dead.length} died (${dead[0].cause||'unknown causes'}).`);else dead.forEach(p=>{if(p===sel||Math.random()<.3)log(`${p.name} died (${p.cause||'unknown causes'}).`)});
+ dead.forEach(p=>{const c0=(p.cause||'unknown').replace(/ by .*/,'');deathCauses[c0]=(deathCauses[c0]||0)+1;J(p,`Died of ${p.cause||'unknown causes'}.`);p.died=yr;fallen.unshift(p);if(fallen.length>300)fallen.length=300;mind.kill(p,p.killer);byId.delete(p.id)});if(sel&&sel.hp<=0){sel.dead=1;if(follow){follow=false}}if(dead.length){P=P.filter(p=>p.hp>0);mind.gc()}
+ kings.forEach(k=>{let n=k.pop;if(!k.dead&&n==0&&k.seen&&!P.some(p=>p.k===k)){k.dead=1;k.war.forEach(o=>o.war.delete(k));log(`<span style=color:${k.c}>${k.name}</span> has fallen.`)}if(n)k.seen=1;
+  if(!civ&&Math.random()<.0008*dt&&n>8){let o=kings.find(b=>b!==k&&!b.dead&&!k.war.has(b)&&b.pop>0);if(o){k.war.add(o);o.war.add(k);log(`⚔ <span style=color:${k.c}>${k.name}</span> declares war on <span style=color:${o.c}>${o.name}</span>.`);mind.notify({type:'war',about:o.id},P.filter(p=>p.k===k))}}
+  if(!civ&&Math.random()<.0006*dt)k.war.forEach(o=>{k.war.delete(o);o.war.delete(k);log(`🕊 <span style=color:${k.c}>${k.name}</span> and <span style=color:${o.c}>${o.name}</span> make peace.`);mind.notify({type:'peace'},P.filter(p=>p.k===k||p.k===o))})})}
+function updateOwners(){const NO=HK.layer&&HK.layer.nationOwner&&HK.layer.nationOwner();if(NO&&NO.owner){OWN.set(NO.owner);ownColors=NO.colors;dirtyC=true;return}ownColors=null;OWN.fill(0);for(const h of houses){const id=kings.indexOf(h.k)+1;for(let j=-4;j<=4;j++){const y=Math.round(h.y)+j;if(y<0||y>=TH)continue;const s=sinT(y),w=Math.ceil(4/s);for(let i=-w;i<=w;i++){if((i*s)**2+j*j>16)continue;OWN[y*TW+wrapX(Math.round(h.x)+i)]=id}}}dirtyC=true}
+
+// ================= GOD TOOLS =================
+const tools=[['🧍','human'],['🏕','tribe'],['🌾','bless'],['❤','heal'],['⚡','lightning'],['🔥','fire'],['☄','meteor'],['🦠','plague'],['⚔','war'],['🕊','peace'],['🗣','speak'],['🗿','smite idol'],['🌊','water'],['🌱','land'],['🌲','forest'],['⛰','mountain'],['🔍','inspect']];let tool='inspect',brush=3;
+const PAINT=['water','land','forest','mountain','fire','bless'];
+const tb=document.getElementById('tb');tools.forEach(([i,n])=>{let b=document.createElement('button');b.textContent=i+' '+n;b.onclick=()=>{tool=n;[...tb.querySelectorAll('.t')].forEach(c=>c.classList.remove('on'));b.classList.add('on')};b.className='t'+(n==tool?' on':'');tb.appendChild(b)});
+const SP=[.1,.25,.5,1,3];let sb=document.createElement('button');sb.textContent='⏩ ×0.25';sb.onclick=()=>{speed=SP[(SP.indexOf(speed)+1)%SP.length];sb.textContent='⏩ ×'+speed};tb.appendChild(sb);
+let pb=document.createElement('button');pb.textContent='⏸';pb.onclick=()=>{paused=!paused;pb.textContent=paused?'▶':'⏸'};tb.appendChild(pb);
+let fl=document.createElement('button');fl.textContent='🌋 Flood the world';fl.onclick=()=>{if(!confirm('Flood the whole world? Everyone dies.'))return;floodWorld()};tb.appendChild(fl);
+let nw=document.createElement('button');nw.textContent='✨ New world';nw.onclick=()=>{if(confirm('Unmake this world and make a new one?')){chronicle('You unmade the world.');newWorld()}};tb.appendChild(nw);
+let sv=document.createElement('button');sv.textContent='💾 Save';sv.onclick=save;tb.appendChild(sv);let ld=document.createElement('button');ld.textContent='📂 Load';ld.onclick=load;tb.appendChild(ld);
+let st=document.createElement('button');st.textContent='⚙ Settings';st.onclick=()=>{const s=document.getElementById('set');s.style.display=s.style.display=='block'?'none':'block';buildSettings()};tb.appendChild(st);let cxb=document.createElement('button');cxb.textContent='📖 Codex';cxb.onclick=()=>{const c=document.getElementById('cx');if(c.style.display=='flex')c.style.display='none';else openCodex()};tb.appendChild(cxb);
+function floodWorld(){for(let i=0;i<NT;i++)if(T[i]<6){T[i]=1;tileH(i)}dirtyH=dirtyC=true;mind.notify({type:'flood',intensity:1,cruel:true});P.forEach(p=>{p.hp=0;p.cause='the great flood'});houses=[];houseVer++;log('🌊 The great flood. Nothing living remains.');chronicle('You drowned the whole world in the great flood.')}
+function paint(x,y,v){for(let j=-brush;j<=brush;j++){const Y=Math.floor(y)+j;if(Y<0||Y>=TH)continue;const s=sinT(Y),w=Math.ceil(brush/s);for(let i=-w;i<=w;i++){if((i*s)**2+j*j>brush*brush)continue;const k=Y*TW+wrapX(Math.floor(x)+i);if(T[k]==9&&v!=1)continue;setT(k,v);F[k]=0;if(v==6||v==1){tileH(k);dirtyH=true}}}if(v<2||v==6){const hl=houses.length;houses=houses.filter(h=>land(at(h.x,h.y)));if(hl!=houses.length)houseVer++}}
+function act(x,y,click){
+ if(tool=='water')paint(x,y,1);if(tool=='land')paint(x,y,3);if(tool=='forest')paint(x,y,4);if(tool=='mountain')paint(x,y,6);
+ if(['water','land','forest','mountain'].includes(tool)&&click)chronicle(`You reshaped the earth (${tool}).`);
+ if(tool=='fire'){for(let i=0;i<6;i++){F[tidx(x+Math.random()*3-1.5,y+Math.random()*3-1.5)]=1}dirtyC=true;if(click){chronicle('You set the land on fire.');mind.notify({type:'fire',x,y,radius:8,cruel:true},near(x,y,16))}}
+ if(tool=='bless'){let n=near(x,y,5);n.forEach(p=>{p.hunger=0;p.thought='Bread fell from heaven. Someone is watching over us.';J(p,'Fed by bread from heaven.');p.faith=Math.min(1,p.faith+.2)});if(n[0]&&n[0].k)n[0].k.food+=20;if(click){rainFX(x,y);mind.notify({type:'rain',x,y,radius:5},n);mind.notify({type:'feed',x,y,radius:5},n);chronicle(`You blessed ${n.length} souls with rain and bread.`)}}
+ if(!click)return;
+ if(tool=='human'&&land(at(x,y))){let p=civ?civPerson(x,y):person(x,y,null);p.thought='Where am I? Who made me?';chronicle(`You made ${p.name} from the dust.`)}
+ if(tool=='tribe'&&land(at(x,y))){const k=civ?(()=>{let q;for(let i=0;i<5;i++)q=civPerson(x+Math.random()*2,y+Math.random()*2);return q.k||{name:'wanderers'}})():spawnTribe(x,y);chronicle(`You planted the tribe of ${k.name}.`)}
+ if(tool=='heal'){const n=near(x,y,6);n.forEach(p=>{p.hp=100;p.sick=0;p.thought='A light touched me. I am healed.';J(p,'Healed by a miracle.');p.faith=1});mind.notify({type:'heal',x,y,radius:6},n);log('❤ A miracle of healing.');chronicle(`You healed ${n.length}.`)}
+ if(tool=='lightning'){lightningFX(x,y);const v=near(x,y,1.5);v.forEach(p=>{p.hp=0;p.cause='struck by lightning'});F[tidx(x,y)]=1;dirtyC=true;near(x,y,10).forEach(p=>{p.thought='The sky struck in anger. What did we do?'});mind.notify({type:'lightning',x,y,radius:10,cruel:true},near(x,y,20));chronicle(v.length?`Your lightning killed ${v.map(p=>p.name.split(' ')[0]).join(', ')}.`:'You hurled lightning.')}
+ if(tool=='meteor'){meteorFX(x,y);chronicle('You called down a meteor.')}
+ if(tool=='plague'){const n=near(x,y,4);n.forEach(p=>{p.sick=1;J(p,'Fell sick with plague.')});mind.notify({type:'plague',x,y,radius:6,cruel:true},near(x,y,10));log('🦠 A plague begins.');chronicle(`You sent a plague upon ${n.length}.`)}
+ if(tool=='war'||tool=='peace'){let a=near(x,y,8).map(p=>p.k).filter(Boolean)[0];if(!a)return;kings.filter(b=>b!==a).forEach(b=>{if(tool=='war'){a.war.add(b);b.war.add(a)}else{a.war.delete(b);b.war.delete(a)}});
+  const msg=tool=='war'?`⚔ Divine fury drives <span style=color:${a.c}>${a.name}</span> to war against everyone.`:`🕊 <span style=color:${a.c}>${a.name}</span> makes peace with everyone.`;log(msg);chronicle(msg);mind.notify({type:tool,x,y,radius:8},P.filter(p=>p.k===a))}
+ if(tool=='speak'){let s=prompt('What do you tell them?');if(s){let ob=0,no=0,ex=null;near(x,y,20).forEach(p=>{const r=mind.respond(p,s);p.thought=`The voice said: "${s}". ${r.reply}`;J(p,`Heard the voice: "${s}" and ${r.obey?'obeyed':'refused'}.`);if(r.obey){ob++;const kd=r.kind;p.intent=kd=='worship'?'pray':kd=='build'?'build':kd=='work'?'work':kd=='migrate'?'migrate':kd=='rest'?'rest':kd=='violence'?'fight':null}else{no++;ex=ex||[p,r.reply]}});
+  mind.notify({type:'speak',text:s,x,y,radius:20},near(x,y,20));log(`🗣 A voice from heaven: "${s}" (${ob} obey, ${no} refuse)`);chronicle(`You spoke: "${s}". ${ob} obeyed, ${no} refused${ex?` — ${ex[0].name.split(' ')[0]}: "${ex[1]}"`:''}.`)}}
+ if(tool=='smite idol'){const n=near(x,y,12);const cnt={};n.forEach(p=>{const g=mind.godId(p);if(g&&g!=='true')cnt[g]=(cnt[g]||0)+1});let id=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0];const G=mind.gods();if(!id){const best=Object.entries(G.byGod).sort((a,b)=>b[1].followers-a[1].followers)[0];id=best&&best[0]}
+  if(!id){log('There is no idol here to smite.');return}const g=G.byGod[id];lightningFX(x,y,0xffd77a);mind.smite(id,x,y);n.filter(p=>mind.godId(p)===id).forEach(p=>{p.thought=`The shrine of ${g.name} lies broken. Was it ever real?`;J(p,`Saw the idol of ${g.name} struck down.`)});log(`🗿 The idol of <b>${g.name}</b> is struck down.`);chronicle(`You smote the idol of ${g.name} (${g.followers} followers).`)}
+ if(tool=='inspect')pickAt(x,y)}
+function meteorImpact(x,y){for(let j=-6;j<=6;j++){const Y=Math.floor(y)+j;if(Y<0||Y>=TH)continue;const s=sinT(Y),w=Math.ceil(6/s);for(let i=-w;i<=w;i++){const d2=(i*s)**2+j*j;if(d2>=36)continue;const k=Y*TW+wrapX(Math.floor(x)+i);T[k]=d2<6?1:8;tileH(k);if(d2<6)TH_[k]=-4;else if(d2>20)TH_[k]+=3;if(Math.random()<.3)F[k]=1}}dirtyH=dirtyC=true;
+ const v=near(x,y,6);v.forEach(p=>{p.hp=0;p.cause='a meteor'});const hl=houses.length;houses=houses.filter(h=>dist(h.x,h.y,x,y)>6);if(hl!=houses.length)houseVer++;mind.notify({type:'quake',x,y,radius:15,cruel:true},near(x,y,30));log('☄ A meteor struck the world.');if(v.length)chronicle(`Your meteor killed ${v.length}.`)}
+
+// ================= SETTINGS (live faith TUNING from godbox-minds) =================
+function buildSettings(){const s=document.getElementById('set');const secs=[];if(mind.tuning)secs.push(['Faith dynamics (godbox-minds TUNING)',mind.tuning,'m']);if(V)secs.push(['Civilization (godbox-civ TUNING)',V.TUNING,'c']);
+ if(!secs.length){s.innerHTML='<b>Settings</b><br>No tunable modules loaded.';return}
+ if(!buildSettings.def)buildSettings.def={m:mind.tuning?{...mind.tuning}:{},c:V?{...V.TUNING}:{}};const D=buildSettings.def;
+ let h='<b>⚙ God-mode settings (live, saved with the world)</b>';if(civ)h+=`<div style=margin-top:6px><b>Invention rate</b> (civ.expRate)<br><input type=range min=0 max=60 step=.5 value=${civ.expRate} id=sexp> <span id=sexpv>${civ.expRate}</span></div>`;
+ for(const[title,Tn,key]of secs){h+=`<hr><b>${title}</b>`+Object.keys(Tn).filter(k=>typeof Tn[k]=='number').map(k=>{const d=D[key][k]||Tn[k]||1;return `<div title="${k}">${k}<br><input type=range min=0 max=${d*4} step=${d*4/200} value=${Tn[k]} data-s=${key} data-k=${k}> <input type=number style="width:70px" step=any value=${Tn[k]} data-s=${key} data-n=${k}></div>`}).join('')}
+ s.innerHTML=h+'<br><button class=btn id=tdef>Reset defaults</button>';const obj=k=>k=='m'?mind.tuning:V.TUNING;
+ s.querySelectorAll('[data-k]').forEach(i=>i.oninput=()=>{obj(i.dataset.s)[i.dataset.k]=+i.value;s.querySelector(`[data-s="${i.dataset.s}"][data-n="${i.dataset.k}"]`).value=i.value});
+ s.querySelectorAll('[data-n]').forEach(i=>i.onchange=()=>{obj(i.dataset.s)[i.dataset.n]=+i.value;s.querySelector(`[data-s="${i.dataset.s}"][data-k="${i.dataset.n}"]`).value=i.value});
+ const se=document.getElementById('sexp');if(se)se.oninput=()=>{civ.expRate=+se.value;document.getElementById('sexpv').textContent=se.value};
+ document.getElementById('tdef').onclick=()=>{if(mind.tuning)Object.assign(mind.tuning,D.m);if(V)Object.assign(V.TUNING,D.c);buildSettings()}}
+
+// ================= SAVE / LOAD =================
+function save(){const d={v:2,seed,yr,ages,nextId,nextK,simT,T:Array.from(T),E:Array.from(E),kings:kings.map(k=>({...k,war:[...k.war].map(o=>kings.indexOf(o)),houses:undefined})),houses:houses.map(h=>({...h,k:kings.indexOf(h.k)})),P:P.map(p=>({...p,k:p.k?kings.indexOf(p.k):-1,mind:undefined,killer:undefined})),chron,minds:mind.save(),civ:civ?V.serialize(civ):null,civTuning:V?{...V.TUNING}:null,tuning:mind.tuning?{...mind.tuning}:null,cam:{tx:cam.tx,ty:cam.ty,alt:cam.alt}};
+ try{localStorage.setItem('godbox-earth',JSON.stringify(d));log('💾 World saved.')}catch(e){log('Save failed: '+e.message)}}
+function load(){const s=localStorage.getItem('godbox-earth');if(!s){log('No saved world.');return}const d=JSON.parse(s);seed=d.seed;yr=d.yr;ages=d.ages;nextId=d.nextId;nextK=d.nextK||99;simT=d.simT;T.set(d.T);E.set(d.E);F.fill(0);for(let i=0;i<NT;i++)tileH(i);
+ kings=d.kings.map(k=>({...k,war:new Set(),houses:[]}));d.kings.forEach((k,i)=>k.war.forEach(j=>kings[i].war.add(kings[j])));houses=d.houses.map(h=>({...h,k:kings[h.k]}));P=d.P.map(p=>({...p,k:p.k>=0?kings[p.k]:null}));byId=new Map(P.map(p=>[p.id,p]));chron=d.chron||[];
+ if(d.minds)mind.load(d.minds,P);else{mind.reset();P.forEach(p=>mind.create(p))}if(d.civ&&V){civ=V.deserialize(d.civ);if(d.civTuning)Object.assign(V.TUNING,d.civTuning);for(const k in kingByNat)delete kingByNat[k];for(const k of kings)if(k.civId!=null)kingByNat[k.civId]=k;registerCivLayer()}else{civ=null;HK.layer=null}if(d.tuning&&mind.tuning)Object.assign(mind.tuning,d.tuning);if(d.cam)Object.assign(cam,d.cam);sel=null;dirtyH=dirtyC=true;houseVer++;log('📂 World loaded.');chronicle('You restored the world from memory.')}
+
+// ================= CAMERA =================
+const cam={tx:0,ty:80,alt:2600,head:0,fly:null};let follow=false;
+const _cp=new THREE.Vector3(),_tp=new THREE.Vector3(),_n=new THREE.Vector3(),_f=new THREE.Vector3();
+function tiltFor(a){return a>900?0:Math.pow(1-a/900,1.3)*1.3}
+function updateCamera(dt){
+ if(cam.fly){const f=cam.fly;f.t=Math.min(1,f.t+dt/1.6);const e=f.t<.5?2*f.t*f.t:1-(-2*f.t+2)**2/2;cam.tx=wrapX(f.x0+f.dx*e);cam.ty=f.y0+(f.y1-f.y0)*e;const mid=Math.max(f.a0,f.a1)*(1+Math.min(1.5,f.span/40));const base=f.a0+(f.a1-f.a0)*e;cam.alt=base+(mid-Math.max(f.a0,f.a1))*Math.sin(f.t*Math.PI);if(f.t>=1){cam.fly=null;cam.alt=f.a1}}
+ if(follow&&sel&&!sel.dead){if(!cam.fly){cam.tx=wrapX(cam.tx+wdx(cam.tx,sel.x)*Math.min(1,dt*4));cam.ty+=(sel.y-cam.ty)*Math.min(1,dt*4);if(cam.alt>60)cam.alt+=(30-cam.alt)*Math.min(1,dt*2)}
+  const dx=wdx(sel.x,sel.tx),dy=sel.ty-sel.y;if(Math.hypot(dx,dy)>.05){const fw=surf(sel.tx,sel.ty).sub(surf(sel.x,sel.y)),up=dirOf(sel.x,sel.y),no=northAt(sel.x,sel.y);fw.addScaledVector(up,-fw.dot(up)).normalize();const h=Math.atan2(new THREE.Vector3().crossVectors(no,fw).dot(up),no.dot(fw));let dh=h-cam.head;dh-=Math.round(dh/(2*Math.PI))*2*Math.PI;cam.head+=dh*Math.min(1,dt*1.5)}}
+ cam.ty=Math.max(4,Math.min(TH-4,cam.ty));
+ surf(cam.tx,cam.ty,0,_tp);_n.copy(_tp).normalize();fwdHeading(cam.tx,cam.ty,cam.head,_f);const tl=tiltFor(cam.alt);
+ _cp.copy(_tp).addScaledVector(_n,cam.alt*Math.cos(tl)).addScaledVector(_f,-cam.alt*Math.sin(tl));
+ const ct=tileOfDir(_cp),gh=R+Math.max(0,heightAt(ct.x,ct.y))+1.5;if(_cp.length()<gh)_cp.setLength(gh);
+ camera.position.copy(_cp);camera.up.copy(_n);camera.lookAt(_tp.clone().addScaledVector(_n,Math.min(3,cam.alt*.1)));camera.near=Math.max(.2,cam.alt*.02);camera.updateProjectionMatrix()}
+function flyTo(x,y,alt){cam.fly={x0:cam.tx,dx:wdx(cam.tx,x),y0:cam.ty,y1:y,a0:cam.alt,a1:alt,t:0,span:dist(cam.tx,cam.ty,x,y)}}
+const ray=new THREE.Raycaster();
+function pickSurface(cx,cy){ray.setFromCamera(new THREE.Vector2(cx/innerWidth*2-1,-cy/innerHeight*2+1),camera);const o=ray.ray.origin,d=ray.ray.direction;let rad=R,hit=null;
+ for(let it=0;it<5;it++){const b=o.dot(d),c=o.lengthSq()-rad*rad,disc=b*b-c;if(disc<0)return hit;const t=-b-Math.sqrt(disc);if(t<0)return hit;const p=o.clone().addScaledVector(d,t);const tt=tileOfDir(p);hit=tt;rad=R+Math.max(0,heightAt(tt.x,tt.y))}return hit}
+const mouse={x:0,y:0,down:false,btn:0,moved:0,lx:0,ly:0};
+function pickAt(x,y){let best=null,bd=1e9;
+ if(cam.alt<400){const v=new THREE.Vector3();for(const p of P){surf(p.x,p.y,4,v).project(camera);if(v.z>1)continue;const sx=(v.x+1)/2*innerWidth,sy=(1-v.y)/2*innerHeight,d=Math.hypot(sx-mouse.x,sy-mouse.y);if(d<28&&d<bd){bd=d;best=p}}}
+ if(!best)best=near(x,y,2.5).sort((a,b)=>dist(a.x,a.y,x,y)-dist(b.x,b.y,x,y))[0]||null;sel=best;if(!sel)follow=false}
+cv.addEventListener('contextmenu',e=>e.preventDefault());
+cv.addEventListener('mousedown',e=>{mouse.down=true;mouse.btn=e.button;mouse.moved=0;mouse.lx=e.clientX;mouse.ly=e.clientY;mouse.x=e.clientX;mouse.y=e.clientY;mouse.ctrl=e.ctrlKey||e.button==2;
+ if(e.button==0&&PAINT.includes(tool)&&!e.shiftKey){mouse.painting=true;const h=pickSurface(e.clientX,e.clientY);if(h)act(h.x,h.y,true)}else mouse.painting=false});
+addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY;if(!mouse.down)return;const dx=e.clientX-mouse.lx,dy=e.clientY-mouse.ly;mouse.lx=e.clientX;mouse.ly=e.clientY;mouse.moved+=Math.abs(dx)+Math.abs(dy);
+ if(mouse.painting){const h=pickSurface(e.clientX,e.clientY);if(h)act(h.x,h.y,false);return}
+ if(mouse.ctrl||mouse.btn==1){cam.head-=dx*.005;return}
+ cam.fly=null;if(follow){follow=false;updFollowBtn()}const upx=cam.alt*0.83/innerHeight/TILE;const c=Math.cos(cam.head),s=Math.sin(cam.head);const ex=-dx*upx,ny=dy*upx;
+ const de=ex*c+ny*s,dn=-ex*s+ny*c;cam.tx=wrapX(cam.tx+de/sinT(cam.ty));cam.ty=cam.ty-dn});
+addEventListener('mouseup',e=>{if(mouse.down&&mouse.moved<5&&!mouse.painting&&e.target===cv&&e.button==0){const h=pickSurface(e.clientX,e.clientY);if(h)act(h.x,h.y,true)}mouse.down=false;mouse.painting=false});
+cv.addEventListener('dblclick',e=>{const h=pickSurface(e.clientX,e.clientY);if(h){follow=false;updFollowBtn();flyTo(h.x,h.y,cam.alt>900?250:Math.max(12,cam.alt*.3))}});
+cv.addEventListener('wheel',e=>{e.preventDefault();cam.fly=null;cam.alt=Math.max(4,Math.min(5000,cam.alt*Math.exp(e.deltaY*.0012)))},{passive:false});
+addEventListener('keydown',e=>{if(e.target.tagName=='INPUT')return;if(e.key=='q')cam.head-=.1;if(e.key=='e')cam.head+=.1;if(e.key=='f'&&sel)toggleFollow();if(e.key==' ')pb.onclick()});
+function toggleFollow(){follow=!follow&&!!sel&&!sel.dead;if(follow)flyTo(sel.x,sel.y,Math.min(cam.alt,30));updFollowBtn()}
+function updFollowBtn(){const b=document.getElementById('fbtn');if(b)b.textContent=follow?'⏹ Stop following':'🎥 Follow'}
+const mmc=document.getElementById('mmc'),mg=mmc.getContext('2d'),mmImg=mg.createImageData(TW,TH),mmo=document.createElement('canvas');mmo.width=TW;mmo.height=TH;const rgbs=COL.map(h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16)));
+function drawMini(){for(let i=0;i<NT;i++){let c=rgbs[T[i]];if(F[i]>0)c=[255,120,30];const o=i*4;mmImg.data[o]=c[0];mmImg.data[o+1]=c[1];mmImg.data[o+2]=c[2];mmImg.data[o+3]=255}mmo.getContext('2d').putImageData(mmImg,0,0);mg.drawImage(mmo,0,0,256,128);
+ const s=256/TW;for(const h of houses){mg.fillStyle=h.k.c;mg.fillRect(h.x*s-1,h.y*s-1,2,2)}mg.fillStyle='#fff';for(const p of P)mg.fillRect(p.x*s,p.y*s,1,1);
+ mg.strokeStyle='#fff';mg.lineWidth=1.5;const r=Math.max(3,Math.min(60,cam.alt/TILE*s*.6));mg.beginPath();mg.ellipse(cam.tx*s,cam.ty*s,Math.min(120,r/sinT(cam.ty)),r,0,0,7);mg.stroke()}
+mmc.onclick=e=>{const r=mmc.getBoundingClientRect();follow=false;flyTo((e.clientX-r.left)/256*TW,(e.clientY-r.top)/128*TH,cam.alt)};
+
+// ================= VISUAL SYNC (LOD) =================
+let treesKey='';
+function rebuildTrees(){let nO=0,nP=0,nF=0;const RAD=16,cx=Math.round(cam.tx),cy=Math.round(cam.ty),p=new THREE.Vector3(),f=new THREE.Vector3();
+ for(let j=-RAD;j<=RAD;j++){const y=cy+j;if(y<0||y>=TH)continue;const s=sinT(y+.5),w=Math.min(TW/2,Math.ceil(RAD/s));for(let i=-w;i<=w;i++){if((i*s)**2+j*j>RAD*RAD)continue;const x=wrapX(cx+i),k=y*TW+x,t=T[k];
+  if(t==4){for(let q=0;q<5;q++){const hsh=((k*2654435761+q*97)>>>0),ox=(hsh%1000)/1000,oy=((hsh>>>10)%1000)/1000;surf(x+ox,y+oy,-.3,p);fwdHeading(x+ox,y+oy,hsh%7,f);const sc=S_AS*(1.2+((hsh>>>20)%100)/100);const pine=E[k]>.15||q%3==0;if(pine&&nP<9000)treePine.setMatrixAt(nP++,orientAt(p,f,sc));else if(nO<9000)treeOak.setMatrixAt(nO++,orientAt(p,f,sc))}}
+  else if(t==7&&nF<6000){surf(x+.5,y+.5,0,p);fwdHeading(x+.5,y+.5,0,f);orientAt(p,f,TILE*sinT(y+.5)/6*.95);_m.scale(new THREE.Vector3(1,.3,1));farmIM.setMatrixAt(nF++,_m)}}}
+ treeOak.count=nO;treePine.count=nP;farmIM.count=nF;[treeOak,treePine,farmIM].forEach(m=>m.instanceMatrix.needsUpdate=true);treesKey=cx+','+cy;treesDirty=false}
+let builtHouseVer=-1;
+function rebuildHouses(){for(const k in houseMeshes)houseMeshes[k].count=0;for(const k in templeMeshes)templeMeshes[k].count=0;const p=new THREE.Vector3(),f=new THREE.Vector3();let nc=0;
+ for(const h of houses){const L=h.k.houses?h.k.houses.length:0;const cn=civ&&h.k.civId!=null?civ.nations[h.k.civId]:null,cb=cn?cn.best:{};const era=cn?((cb.compute||0)>.4?'modern':cb.current?'industrial':(cb.metal||0)>=.2?(h.seed%3?'brick':'stone'):cb.heat?'timber':'hut'):ERAS[L>=24?2:L>=8?1:0];const m=houseMesh(h.k.c,era);if(m.count>=1500)continue;surf(h.x,h.y,0,p);fwdHeading(h.x,h.y,h.rot,f);m.setMatrixAt(m.count++,orientAt(p,f,S_AS*1.1));if(nc<MAXH){const q=surf(h.x,h.y,3);cityP[nc*3]=q.x;cityP[nc*3+1]=q.y;cityP[nc*3+2]=q.z;const el=HK.layer&&HK.layer.electrification;const ev=el?Math.max(0,Math.min(1,+(typeof el=='function'?el(h.x,h.y,h):el)||0)):0;cityE[nc]=ev;nc++;if(ev>0)for(let j=0;j<3&&nc<MAXH;j++){const q2=surf(h.x+(Math.random()-.5)*1.6,h.y+(Math.random()-.5)*1.2,3);cityP[nc*3]=q2.x;cityP[nc*3+1]=q2.y;cityP[nc*3+2]=q2.z;cityE[nc]=ev;nc++}}}
+ for(const k of kings){if(!k.houses||k.houses.length<6||k.cx==null)continue;if(!land(at(k.cx,k.cy)))continue;const m=templeMesh(k.c);surf(k.cx,k.cy,0,p);fwdHeading(k.cx,k.cy,0,f);m.setMatrixAt(m.count++,orientAt(p,f,S_AS*1.2))}
+ for(const k in houseMeshes)houseMeshes[k].instanceMatrix.needsUpdate=true;for(const k in templeMeshes)templeMeshes[k].instanceMatrix.needsUpdate=true;
+ cityG.attributes.position.needsUpdate=true;cityG.attributes.aE.needsUpdate=true;cityG.setDrawRange(0,nc);
+ let n=0;const a=new THREE.Vector3();for(const k of kings){const hs=k.houses||[];for(let i=1;i<hs.length;i++){let b=null,bd=1e9;for(let j=0;j<i;j++){const d=dist(hs[i].x,hs[i].y,hs[j].x,hs[j].y);if(d<bd){bd=d;b=hs[j]}}if(!b||bd>8||n>59000-12)continue;
+  const dx=wdx(hs[i].x,b.x),dy=b.y-hs[i].y;for(let s=0;s<6;s++){surf(hs[i].x+dx*s/6,hs[i].y+dy*s/6,.5,a);roadP[n*3]=a.x;roadP[n*3+1]=a.y;roadP[n*3+2]=a.z;n++;surf(hs[i].x+dx*(s+1)/6,hs[i].y+dy*(s+1)/6,.5,a);roadP[n*3]=a.x;roadP[n*3+1]=a.y;roadP[n*3+2]=a.z;n++}}}
+ roadG.attributes.position.needsUpdate=true;roadG.setDrawRange(0,n);builtHouseVer=houseVer}
+const labels=[];const lblDiv=document.getElementById('lbl');for(let i=0;i<30;i++){const d=document.createElement('div');lblDiv.appendChild(d);labels.push(d)}
+const AN=AS.ANIM;const JOBICON={pray:' 🙏',fight:' ⚔',offer:' 🕯',preach:' 📣',build:' 🔨',farm:' 🌾',harvest:' 🌾',chop:' 🪓',flee:' 💨',rest:' 💤'};
+function syncPeople(t){const show=cam.alt<350;crowd.visible=show;if(!show){crowd.count=0;labels.forEach(l=>l.style.display='none');return}
+ const p=new THREE.Vector3(),f=new THREE.Vector3(),q=new THREE.Vector3(),nn=new THREE.Vector3();let n=0;const cands=[];
+ for(const o of P){if(n>=MAXP)break;surf(o.x,o.y,0,p);if(p.distanceTo(camera.position)>cam.alt*6+600)continue;const dx=wdx(o.x,o.tx),dy=o.ty-o.y;if(Math.abs(dx)+Math.abs(dy)>.02){surf(o.tx,o.ty,0,q);f.subVectors(q,p)}else fwdHeading(o.x,o.y,o.id,f);
+  const walking=o.moving&&!paused;const bob=walking?Math.abs(Math.sin(t*8+o.ph))*.25:0;p.addScaledVector(nn.copy(p).normalize(),bob);
+  const gn=HK.layer&&HK.layer.genes?genesOf(o):o.genes;const hgt=gn&&gn.height?Math.max(.7,Math.min(1.3,gn.height)):1,bld=gn&&gn.build?Math.max(.7,Math.min(1.4,gn.build)):1;const sc0=S_AS*(o.age<14?.55+o.age/40:1);orientAt(p,f,sc0);if(hgt!=1||bld!=1){_m.scale(new THREE.Vector3(bld,hgt,bld))}crowd.setMatrixAt(n,_m);const st=(o.job=='pray'||o.job=='offer')?AN.PRAY:o.job=='fight'?AN.FIGHT:walking?AN.WALK:AN.IDLE;
+  const col=(gn&&gn.tint)||(o.k?o.k.c:'#bbbbbb'),skc=gn&&gn.skin||null;if(o._st!==st||o._c!==col||o._slot!==n||o._sk!==skc){AS.anim(crowd,n,st,o.ph,new THREE.Color(col).getHex(),skc?new THREE.Color(skc).getHex():null,gn&&gn.hair?new THREE.Color(gn.hair).getHex():null);o._st=st;o._c=col;o._slot=n;o._sk=skc}
+  const d=p.distanceTo(camera.position);if(d<220)cands.push([d,o,p.clone()]);n++}
+ crowd.count=n;crowd.instanceMatrix.needsUpdate=true;AS.flag(crowd);crowd.userData.upd(t);
+ cands.sort((a,b)=>a[0]-b[0]);const v=new THREE.Vector3();
+ labels.forEach((l,i)=>{const c=cands[i];if(!c||cam.alt>140){l.style.display='none';return}v.copy(c[2]).addScaledVector(nn.copy(c[2]).normalize(),S_AS*2.1).project(camera);if(v.z>1||Math.abs(v.x)>1.1||Math.abs(v.y)>1.1){l.style.display='none';return}
+  l.style.display='block';l.style.left=((v.x+1)/2*innerWidth)+'px';l.style.top=((1-v.y)/2*innerHeight)+'px';const o=c[1];l.textContent=(o===sel?'▼ ':'')+o.name.split(' ')[0]+(JOBICON[o.job]||'')+(o.sick?' 🤢':'');l.style.color=o===sel?'#ffd77a':'#fff'})}
+function updateFX(dt){
+ for(let i=fx.length-1;i>=0;i--){const e=fx[i];e.t-=dt;if(e.rain){const g=surf(e.rain.x,e.rain.y),up=g.clone().normalize(),sd=new THREE.Vector3().randomDirection().cross(up).normalize(),sd2=sd.clone().cross(up);
+   for(let k=0;k<25;k++){const p=g.clone().addScaledVector(up,90+Math.random()*40).addScaledVector(sd,(Math.random()-.5)*160).addScaledVector(sd2,(Math.random()-.5)*160);emit(p,up.clone().multiplyScalar(-140),1,0x88aaff,'rain')}}
+  else e.o.forEach(o=>{if(o.material)o.material.opacity=Math.random();if(o.isPointLight)o.intensity*=.85});
+  if(e.t<=0){e.o.forEach(o=>{scene.remove(o);o.geometry&&o.geometry.dispose()});fx.splice(i,1)}}
+ for(let i=meteors.length-1;i>=0;i--){const m=meteors[i];m.t+=dt/1.3;const pos=m.from.clone().lerp(m.to,Math.min(1,m.t));m.head.position.copy(pos);const tail=m.from.clone().lerp(m.to,Math.max(0,m.t-.25));m.tail.geometry.setFromPoints([tail,pos]);
+  emit(pos,new THREE.Vector3().randomDirection().multiplyScalar(5),.6,0xffaa44,'fire');
+  if(m.t>=1){scene.remove(m.head,m.tail);m.tail.geometry.dispose();explode(m.to);meteorImpact(m.x,m.y);meteors.splice(i,1)}}
+ if(cam.alt<1200&&burning.length){const nE=Math.min(60,burning.length*2);for(let k=0;k<nE;k++){const j=burning[Math.random()*burning.length|0];const x=j%TW+Math.random(),y=((j/TW)|0)+Math.random();const g=surf(x,y,1),up=g.clone().normalize();
+   if(Math.random()<.65)emit(g,up.clone().multiplyScalar(10+Math.random()*10).add(new THREE.Vector3().randomDirection().multiplyScalar(3)),.7+Math.random()*.5,Math.random()<.5?0xff6a1a:0xffc040,'fire');else emit(g.clone().addScaledVector(up,5),up.clone().multiplyScalar(8).add(new THREE.Vector3().randomDirection().multiplyScalar(3)),3,0x3a3530,'smoke')}}
+ let n=0;for(let i=parts.length-1;i>=0;i--){const q=parts[i];q.l-=dt;if(q.l<=0){parts.splice(i,1);continue}q.p.addScaledVector(q.v,dt);if(q.k!='rain')q.v.multiplyScalar(q.k=='smoke'?.99:.97);
+  if(q.k=='rain'&&q.p.length()<R+3){q.l=0}
+  const a=q.l/q.L;pp[n*3]=q.p.x;pp[n*3+1]=q.p.y;pp[n*3+2]=q.p.z;pc[n*3]=q.c.r*a;pc[n*3+1]=q.c.g*a;pc[n*3+2]=q.c.b*a;n++}
+ pg.setDrawRange(0,n);pg.attributes.position.needsUpdate=pg.attributes.color.needsUpdate=true;pts.material.size=Math.max(1.5,Math.min(30,cam.alt*.04+1.5))}
+
+// ================= CIVILIZATION LAYER HOOKS =================
+// GB.registerLayer(layer). Every field is optional:
+//  tick(dtYears, api)                          called each sim step (api = GB)
+//  nationOwner() -> {owner:Int16Array(TW*TH) 0=none/1-based id, colors:[css,...]}   replaces kingdom borders
+//  tradeRoutes() / powerLines() -> [{a:{x,y}, b:{x,y}, color?}]   tile coords; drawn draped on the globe
+//  electrification -> number 0..1 | fn(x,y,house) -> 0..1          brightens city lights
+//  inventions() -> [{year, name, by?, desc?}]                     inventions timeline
+//  codex(tab) -> [{id, name, sub?, color?}]  tabs: people, nations, leaders, culture, inventions, history
+//  story(tab, id) -> html string                                  full story for one codex entry
+//  onEvent(evt)                                                    god acts & deaths are forwarded here
+const HK={layer:null};
+function mkLines(color){const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(40000*3),3));g.setAttribute('color',new THREE.BufferAttribute(new Float32Array(40000*3),3));g.setDrawRange(0,0);const l=new THREE.LineSegments(g,new THREE.LineBasicMaterial({vertexColors:true,transparent:true,opacity:.9}));l.frustumCulled=false;l.userData.def=color;scene.add(l);return l}
+const tradeL=mkLines('#ffcf5a'),powerL=mkLines('#7fe8ff');
+function drawLines(L,list,lift){const P3=L.geometry.attributes.position.array,C3=L.geometry.attributes.color.array,a=new THREE.Vector3(),da=new THREE.Vector3(),db=new THREE.Vector3(),cap=P3.length/3-2;let n=0;
+ for(const r of list||[]){if(!r||!r.a||!r.b||![r.a.x,r.a.y,r.b.x,r.b.y].every(Number.isFinite))continue;_c.set(r.color||L.userData.def);
+  dirOf(r.a.x,r.a.y,da);dirOf(r.b.x,r.b.y,db);const ang=Math.acos(Math.max(-1,Math.min(1,da.dot(db))));if(ang<1e-6)continue;
+  const ha=Math.max(0,heightAt(r.a.x,r.a.y)),hb=Math.max(0,heightAt(r.b.x,r.b.y)),seg=Math.max(2,Math.min(64,Math.ceil(ang*R/TILE)));
+  if(n+seg*2>cap)break;const sn=Math.sin(ang),bump=Math.min(6,ang*R*.004);
+  const pt=t=>{const wa=Math.sin((1-t)*ang)/sn,wb=Math.sin(t*ang)/sn;a.set(da.x*wa+db.x*wb,da.y*wa+db.y*wb,da.z*wa+db.z*wb).normalize();
+   const lat=Math.asin(Math.max(-1,Math.min(1,a.y)));// sample terrain under the arc
+   const tx=r.a.x+wdx(r.a.x,r.b.x)*t,ty=r.a.y+(r.b.y-r.a.y)*t;const h=Math.max(ha+(hb-ha)*t,ang<.2?Math.max(0,heightAt(tx,ty)):0);
+   return a.multiplyScalar(R+h+lift+bump*Math.sin(Math.PI*t))};
+  for(let s=0;s<seg;s++)for(const t of[s/seg,(s+1)/seg]){pt(t);P3.set([a.x,a.y,a.z],n*3);C3.set([_c.r,_c.g,_c.b],n*3);n++}}
+ L.geometry.setDrawRange(0,n);L.geometry.attributes.position.needsUpdate=L.geometry.attributes.color.needsUpdate=true}
+function civRefresh(){const Ly=HK.layer;if(!Ly)return;try{if(Ly.tradeRoutes)drawLines(tradeL,Ly.tradeRoutes(),1.2);if(Ly.powerLines)drawLines(powerL,Ly.powerLines(),4);if(Ly.electrification)houseVer++}catch(e){console.warn('civ layer refresh',e)}}
+function civEvent(e){try{HK.layer&&HK.layer.onEvent&&HK.layer.onEvent(e)}catch(err){console.warn(err)}}
+// ================= CODEX (click-to-inspect anything) =================
+const CXT=[['people','👤 People'],['genes','🧬 Genes'],['nations','🏰 Nations'],['leaders','👑 Leaders & factions'],['culture','🎭 Culture'],['inventions','💡 Inventions'],['history','📜 History']];
+let cxTab='people',cxSel=null;const esc=s=>String(s).replace(/</g,'&lt;');
+const kLink=k=>k?`<span class=lk data-cx="nations:${k.civId!=null?'n'+k.civId:k.id}" style=color:${k.c}>${k.name}</span>`:'no kingdom';
+function leaderOf(k){return P.filter(p=>p.k===k&&p.age>16).sort((a,b)=>(b.age+b.kids*3+b.str*5)-(a.age+a.kids*3+a.str*5))[0]}
+const findP=id=>byId.get(id)||fallen.find(q=>q.id==id);
+const pl=id=>{const q=findP(id);if(!q&&civ&&civ.people[id]){const c=civ.people[id];return `<span style=opacity:.75>${c.died!=null?'✝':''}${esc(c.name)}</span>`}return q?`<span class=lk data-cx="people:${q.id}" style=color:${q.k?q.k.c:'#ccc'}>${q.hp<=0?'✝':''}${q.name.split(' ')[0]}</span>`:'<span style=opacity:.5>(forgotten)</span>'};
+function familyTree(p){const CP=id=>civ&&civ.people[id],PA=id=>CP(id)?CP(id).par:((findP(id)||{}).par||[]),CH=id=>CP(id)?CP(id).kids:((findP(id)||{}).ch||[]);const par=PA(p.id),gp=par.flatMap(PA),sib=[...new Set(par.flatMap(CH))].filter(id=>id!==p.id),ch=CH(p.id),gch=ch.flatMap(CH);
+ const row=(n,l)=>l.length?`<div><span style=opacity:.6>${n}:</span> ${l.map(pl).join(', ')}</div>`:'';
+ const sp=p.mind&&p.mind.spouse;return `<div style="border:1px solid #334;padding:5px;margin:6px 0;border-radius:4px"><b>🌳 Family tree</b>${row('Grandparents',gp)}${row('Parents',par)}<div>➤ <b>${p.name.split(' ')[0]}</b>${sp!=null?' ⚭ '+pl(sp):''}</div>${row('Siblings',sib)}${civ&&civ.people[p.id]&&civ.families[civ.people[p.id].fam]?`<div><span style=opacity:.6>House:</span> <span class=lk data-cx="leaders:f${civ.people[p.id].fam}">${esc(civ.families[civ.people[p.id].fam].name)}</span></div>`:''}${row('Children',ch)}${row('Grandchildren',gch)}${!par.length&&!ch.length?'<i style=opacity:.6>No known kin.</i>':''}</div>`}
+function genesOf(p){const L=HK.layer;try{return L&&L.genes?L.genes(p):p.genes||null}catch(e){return null}}
+function genesHTML(p){const g=genesOf(p);if(!g)return'';return `<div style="border:1px solid #334;padding:5px;margin:6px 0;border-radius:4px"><b>🧬 Genes</b><br>`+Object.entries(g).map(([k,v])=>`${k}: ${typeof v=='number'?v.toFixed(2):typeof v=='object'?esc(JSON.stringify(v)):esc(v)}${k=='skin'||k=='hair'?` <span class=bar style="width:10px;background:${v}"></span>`:''}`).join('<br>')+'</div>'}
+function builtin(tab){
+ if(tab=='genes'&&civ)return[];
+ if(tab=='genes'){const L=HK.layer;if(!L||!L.genes)return[];return P.slice(0,300).map(p=>{const g=genesOf(p)||{};return{id:p.id,name:p.name.split(' ')[0],sub:Object.entries(g).slice(0,3).map(([k,v])=>k+' '+(typeof v=='number'?v.toFixed(2):v)).join(' · '),color:g.skin||'#ccc'}})}
+ if(tab=='people')return[...P.map(p=>({id:p.id,name:p.name.split(' ')[0],sub:`${p.age|0}y · ${p.k?p.k.name:'wanderer'} · ${p.job}`,color:p.k?p.k.c:'#ccc'})),...fallen.slice(0,120).map(p=>({id:p.id,name:'✝ '+p.name.split(' ')[0],sub:`died yr ${p.died|0}: ${p.cause||''}`,color:'#a88'}))];
+ if(tab=='nations'&&civ)return[];
+ if(tab=='nations')return kings.map(k=>({id:k.id,name:(k.dead?'✝ ':'')+k.name,sub:k.dead?'fallen':`${k.pop} people · ${(k.houses||[]).length} homes`,color:k.c}));
+ if(tab=='leaders'){const out=[];if(!civ)for(const k of kings){if(k.dead)continue;const l=leaderOf(k);if(l)out.push({id:'L'+l.id,name:`Chief ${l.name.split(' ')[0]}`,sub:`leader of ${k.name}`,color:k.c})}const G=mind.gods();out.push({id:'Gtrue',name:'The true god (you)',sub:`${G.followers.true||0} faithful`,color:'#ffd77a'});for(const id in G.byGod){const g=G.byGod[id];out.push({id:'G'+id,name:g.name,sub:`${g.kind} cult · ${g.followers} followers`,color:g.color||'#a8f'})}return out}
+ if(tab=='history')return[{id:'all',name:'Full chronicle',sub:`${histAll.length} entries`},{id:'god',name:'Acts of the god',sub:'everything you did'},...kings.map(k=>({id:'k'+k.id,name:'History of '+k.name,color:k.c}))];
+ return[]}
+function builtinStory(tab,id){
+ if(tab=='genes'){const p=findP(+id);return p?`<h3 style=margin:2px 0>${esc(p.name)}</h3>${genesHTML(p)}${familyTree(p)}`:''}
+ if(tab=='people'){const p=P.find(q=>q.id==id)||fallen.find(q=>q.id==id);if(!p)return'';sel=p;const g=mind.god(p);
+  return `<h3 style=margin:2px 0;color:${p.k?p.k.c:'#ccc'}>${p.dead||p.hp<=0?'✝ ':''}${esc(p.name)}</h3>${kLink(p.k)} · age ${p.age|0} · born year ${p.born|0}${p.died!=null?` · died year ${p.died|0} (${p.cause})`:''}<br>Strength ${p.str.toFixed(1)}, kindness ${p.kind.toFixed(1)}, faith ${Math.min(1,p.faith).toFixed(2)}${g?' · worships '+g:''}<br>${p.kids} children · ${p.kills} killed<br><i>"${esc(p.thought)}"</i><p>${civ&&civ.people[p.id]?`<div style=white-space:pre-line>${esc(V.describePerson(civ,MW,p.id))}</div>`:mind.describe(p)}</p>${familyTree(p)}${genesHTML(p)}<b>Life story</b><br>${p.life.join('<br>')}<br><br><button class=btn data-go=${p.id}>📍 Go to</button>`}
+ if(tab=='nations'){const k=kings.find(q=>q.id==id);if(!k)return'';const l=leaderOf(k),ev=histAll.filter(h=>h.s.includes(k.name)).slice(0,60);
+  return `<h3 style=margin:2px 0;color:${k.c}>${k.name}${k.dead?' (fallen)':''}</h3>Founded year ${k.founded}. ${k.pop} people, ${(k.houses||[]).length} homes, ${k.food|0} food, ${k.wood|0} wood.<br>Leader: ${l?`<span class=lk data-cx="people:${l.id}">${l.name.split(' ')[0]}</span>`:'none'}<br>At war with: ${[...k.war].map(kLink).join(', ')||'no one'}<br>People: ${P.filter(p=>p.k===k).slice(0,40).map(p=>`<span class=lk data-cx="people:${p.id}">${p.name.split(' ')[0]}</span>`).join(', ')}<br><br><b>History</b><br>${ev.map(h=>`Year ${h.y}: ${h.s}`).join('<br>')||'—'}`+(k.cx!=null?`<br><br><button class=btn data-fly="${k.cx},${k.cy}">📍 Go to</button>`:'')}
+ if(tab=='leaders'){if(id[0]=='L')return builtinStory('people',id.slice(1));const G=mind.gods();const gid=id.slice(1);const fol=P.filter(p=>gid=='true'?mind.godId(p)==='true':mind.godId(p)===gid);
+  const g=gid=='true'?{name:'The true god',kind:'the one real god — you'}:G.byGod[gid];if(!g)return'';return `<h3 style=margin:2px 0>${g.name}</h3>${g.kind}${g.domain?' of '+g.domain:''}${g.discredited?' · discredited':''}<br>${fol.length} followers: ${fol.slice(0,60).map(p=>`<span class=lk data-cx="people:${p.id}">${p.name.split(' ')[0]}</span>`).join(', ')}${gid=='true'?'':'<p style=opacity:.7>Rival gods never act. Only you are real; their followers credit them with your deeds or with chance.</p>'}`}
+ if(tab=='history'){const L=id=='all'?histAll:id=='god'?histAll.filter(h=>h.god):histAll.filter(h=>{const k=kings.find(q=>'k'+q.id==id);return k&&h.s.includes(k.name)});return '<h3 style=margin:2px 0>Chronicle</h3>'+L.slice(0,400).map(h=>`Year ${h.y}: ${h.god?'✋ ':''}${h.s}`).join('<br>')}
+ return''}
+const EMPTY={genes:'Genes appear once the civilization layer supplies them (looks, health, strength, personality, inheritance, mutations).',culture:'No cultures recorded yet. Festivals, sports and languages appear here once the civilization layer is running.',inventions:'No inventions yet. The inventions timeline fills in when the civilization layer is running.'};
+function openCodex(tab,id){cxTab=tab||cxTab;cxSel=id??null;document.getElementById('cx').style.display='flex';renderCodex()}
+function renderCodex(){const cx=document.getElementById('cx');if(cx.style.display!='flex')return;const Ly=HK.layer;
+ document.getElementById('cxt').innerHTML=CXT.map(([k,n])=>`<span data-t=${k} class="${k==cxTab?'on':''}">${n}</span>`).join('');
+ let items=builtin(cxTab).map(i=>({...i,src:'b'}));try{if(Ly&&Ly.codex)items=items.concat((Ly.codex(cxTab)||[]).map(i=>({...i,src:'L'})))}catch(e){console.warn(e)}
+ if(cxTab=='inventions'&&Ly&&Ly.inventions){try{items=items.concat((Ly.inventions()||[]).map((v,i)=>({id:'inv'+i,name:`${v.year!=null?'Yr '+v.year+' · ':''}${v.name}`,sub:v.by,src:'I',v})))}catch(e){}}
+ const q=document.getElementById('cxq').value.toLowerCase();if(q)items=items.filter(i=>(i.name+' '+(i.sub||'')).toLowerCase().includes(q));
+ document.getElementById('cxl').innerHTML=items.length?items.slice(0,400).map(i=>`<div data-id="${i.src}|${i.id}" class="${String(i.id)==String(cxSel)?'on':''}"><b style=color:${i.color||'#eee'}>${esc(i.name)}</b>${i.sub?`<br><span style=opacity:.65>${esc(i.sub)}</span>`:''}</div>`).join(''):`<i style=opacity:.7>${EMPTY[cxTab]||'Nothing here yet.'}</i>`;
+ let d='';if(cxSel!=null){const it=items.find(i=>String(i.id)==String(cxSel));try{if(it&&it.src=='L'&&Ly.story)d=Ly.story(cxTab,it.id);else if(it&&it.src=='I')d=`<h3>${esc(it.v.name)}</h3>${it.v.year!=null?'Year '+it.v.year:''}${it.v.by?' · by '+esc(it.v.by):''}<p>${esc(it.v.desc||'')}</p>`;else d=builtinStory(cxTab,cxSel)}catch(e){d='Story unavailable: '+esc(e.message)}}
+ document.getElementById('cxd').innerHTML=d||'<i style=opacity:.6>Select an entry to read its full story.</i>'}
+document.getElementById('cx').addEventListener('click',e=>{const t=e.target.closest('[data-t]');if(t&&t.parentNode.id=='cxt'){cxTab=t.dataset.t;cxSel=null;renderCodex();return}const it=e.target.closest('#cxl [data-id]');if(it){cxSel=it.dataset.id.split('|').slice(1).join('|');renderCodex()}
+ const go=e.target.closest('[data-go]');if(go){const p=P.find(q=>q.id==go.dataset.go);if(p){sel=p;follow=false;flyTo(p.x,p.y,25)}}const fl=e.target.closest('[data-fly]');if(fl){const[x,y]=fl.dataset.fly.split(',').map(Number);follow=false;flyTo(x,y,150)}});
+document.getElementById('cxq').oninput=renderCodex;document.getElementById('cxx').onclick=()=>document.getElementById('cx').style.display='none';
+document.addEventListener('click',e=>{const l=e.target.closest('[data-cx]');if(!l)return;const[t,...r]=l.dataset.cx.split(':');openCodex(t,r.join(':'))});
+setInterval(renderCodex,1500);
+
+// ================= CIVILIZATION LAYER (godbox-civ + culture + genetics) =================
+const kingByNat={};let civDays=0;
+const fullNm=id=>{const c=civ.people[id];if(!c)return'?';const f=civ.families[c.fam];return(c.name+' '+(f?f.name:'')).trim()};
+const capXY=n=>({x:(n.capital%civ.map.gw+.5)*civ.map.ts,y:c2tY(((n.capital/civ.map.gw|0)+.5)*civ.map.tsy)});
+function civEra(){let best=null;for(const k in civ.milestones){const v=civ.milestones[k];if(!best||v.year>=best[1].year)best=[k,v]}return best?`${best[0]} (yr ${best[1].year})`:'stone age'}
+function kingOf(nid){if(nid==null||nid<0)return null;const n=civ.nations[nid];if(!n)return null;let k=kingByNat[nid];if(!k){k=kingdom();k.civId=nid;k.founded=n.founded;kingByNat[nid]=k}k.name=n.name;k.c=n.color;return k}
+function snapLand(x,y){if(land(at(x,y)))return[x,y];for(let r=1;r<30;r++)for(let q=0;q<16;q++){const a=q/16*6.283,X=wrapX(x+Math.cos(a)*r/sinT(y)),Y=clampY(y+Math.sin(a)*r);if(land(at(X,Y)))return[X,Y]}return[x,y]}
+function personFromMind(m){const c=civ.people[m.id];const[x,y]=snapLand(m.x,c2tY(m.y));const ph=c&&GN?GN.phenotype(c.g):null;
+ const p={id:m.id,x,y,tx:x,ty:y,name:c?fullNm(m.id):m.name,age:m.age,hunger:0,hp:100,k:c?kingOf(c.nat):null,str:ph?.4+ph.strength:.5+Math.random(),kind:m.traits.kindness,faith:m.faith,job:'wander',cjob:c?c.job:null,thought:'I am alive.',kids:c?c.kids.length:0,kills:0,life:[],ph:Math.random()*9,born:c?c.born:yr|0,mind:m};
+ p.life.push(c&&c.par.length?`Born to ${c.par.map(fullNm).join(' and ')}.`:'Came into the world.');P.push(p);byId.set(p.id,p);m.x=x;m.y=t2cY(y);return p}
+function civStart(){MW=MD.createWorldMinds((Math.random()*1e9)|0,{count:CIVN,width:TW,height:TH,groups:5,gods:3});civ=V.createCiv(MW,{nations:5,expRate:CIVRATE});civDays=0;
+ for(const k in kingByNat)delete kingByNat[k];genWorldFromCiv(civ.map);for(const n of civ.nations)kingOf(n.id);for(const m of MW.minds)if(m.alive)personFromMind(m);
+ for(const e of civ.chron)log('🏛 '+esc(e.text));registerCivLayer()}
+function civKill(p){const m=p.mind;if(m)m.alive=false;const c=civ.people[p.id];if(c&&c.died==null){c.died=civ.year;c.cause=p.cause||'the hand of god';const n=civ.nations[c.nat];if(n&&n.leader&&n.leader.id===p.id){n.leader.bio.push(`Died in ${civ.year} (${c.cause}).`);n.pastLeaders=n.pastLeaders.concat([{...n.leader,until:civ.year}]).slice(-30);n.leader=null}}}
+function civPerson(x,y){let nid=V.nationAt(civ,x,t2cY(y));if(nid==null||nid<0||!civ.nations[nid].alive){let bd=1e9;for(const n of civ.nations){if(!n.alive)continue;const c=capXY(n),d=dist(x,y,c.x,c.y);if(d<bd){bd=d;nid=n.id}}}
+ const n=civ.nations[nid];const m=MD.createMind({x,y:t2cY(y),age:18+(Math.random()*10|0),group:nid});MD.addMind(MW,m);m.name=CU.personName(n.lang,Math.random);
+ civ.people[m.id]={id:m.id,name:m.name,sex:m.sex,born:civ.year-m.age,nat:nid,fam:0,par:[],kids:[],job:'farmer',w:20,coins:0,sk:.8,g:GN.randomGenome(Math.random,n.freqs),fed:1,fac:null,gen:1};
+ const p=personFromMind(m);p.x=x;p.y=y;p.tx=x;p.ty=y;p.life=['Shaped from the dust by the god.'];return p}
+function civTick(dt){civDays+=dt*.05*360;if(civDays<10)return;const chunk=Math.max(10,civDays/3);let calls=0;
+ for(const p of P){const m=p.mind;if(m&&m.alive){m.x=p.x;m.y=t2cY(p.y)}}
+ while(civDays>=10&&calls<3){const d=Math.min(chunk,civDays);civDays-=d;calls++;let r;try{r=V.step(civ,MW,d)}catch(e){console.error('civ step failed',e);civDays=0;break}
+  for(const a of r.actions||[]){const p=byId.get(a.id);if(p){p.intent=a.action;p.itarget=a.target}}
+  let n=0;for(const e of r.events||[]){if(!e||!e.text)continue;histAll.unshift({y:yr|0,s:'🏛 '+esc(e.text),god:0});if(e.type!='feud'&&e.type!='economy'&&n++<3){logs.unshift(`<b>Year ${yr|0}</b> 🏛 ${esc(e.text)}`);logs.length=Math.min(logs.length,14)}}renderLog()}
+ for(const p of P){const m=p.mind;if(!m)continue;const c=civ.people[p.id];if(!m.alive){if(p.hp>0){p.hp=0;p.cause=c&&c.cause||'unknown causes'}continue}p.age=m.age;
+  if(c){const k=kingOf(c.nat);if(k&&k!==p.k){if(p.k)J(p,`Became a subject of ${k.name}.`);p.k=k}if(c.job!==p.cjob){p.cjob=c.job;J(p,`Took up work as a ${c.job}.`)}}}
+ for(const m of MW.minds)if(m.alive&&!byId.has(m.id)&&civ.people[m.id]){const c=civ.people[m.id],par=c.par.map(i=>byId.get(i)).find(Boolean);if(par){m.x=par.x;m.y=t2cY(par.y)}const q=personFromMind(m);if(par){par.kids++;J(par,`Had a child, ${c.name}.`);q.thought='I was just born.'}}
+ for(const k of kings){if(k.civId==null||!k.pop)continue;const need=Math.ceil(k.pop/3)-(k.houses||[]).length;const mem=P.filter(q=>q.k===k);for(let t=0;t<Math.min(3,need)&&mem.length;t++){const q=mem[Math.random()*mem.length|0],c=k.cx!=null&&Math.random()<.7?{x:k.cx,y:k.cy}:q,hx=wrapX(c.x+(Math.random()-.5)*7),hy=clampY(c.y+(Math.random()-.5)*5);if(land(at(hx,hy))&&at(hx,hy)!=7&&!houses.some(h=>dist(h.x,h.y,hx,hy)<.7)){houses.push({x:hx,y:hy,k,rot:Math.random()*6.28,seed:Math.random()*1e6|0});houseVer++}}}
+ for(const n of civ.nations){const k=kingOf(n.id);k.war=new Set(Object.entries(n.rel).filter(([,r])=>r.war).map(([id])=>kingOf(+id)).filter(Boolean))}}
+const nOwn=new Int16Array(NT);const pre=t=>`<div style="white-space:pre-line">${esc(t)}</div>`;
+const sw=c=>`<span class=bar style="width:14px;height:14px;background:${c}"></span>`;
+const BUILD={slight:.86,lean:.93,average:1,sturdy:1.08,broad:1.16};
+const civLayer={
+ nationOwner(){const m=civ.map,bw=TW/m.gw,bh=TH/m.gh;for(let y=0;y<TH;y++){const cyv=(y+.5-CY0)/CSY;if(cyv<0||cyv>=TH){nOwn.fill(0,y*TW,y*TW+TW);continue}const by=Math.min(m.gh-1,(cyv/bh)|0);for(let x=0;x<TW;x++){const o=m.own[by*m.gw+Math.min(m.gw-1,(x/bw)|0)];nOwn[y*TW+x]=o>=0?o+1:0}}return{owner:nOwn,colors:civ.nations.map(n=>n.color)}},
+ tradeRoutes(){const out=[];for(const a of civ.nations){if(!a.alive)continue;for(const id in a.rel){const b=civ.nations[id];if(+id<=a.id||!b||!b.alive)continue;const r=a.rel[id];if(r.trade)out.push({a:capXY(a),b:capXY(b),color:r.alliance?'#ffe9a0':'#e0a040'})}}return out},
+ powerLines(){const out=[];for(const n of civ.nations){if(!n.alive||!n.caps||!n.caps.power)continue;const k=kingByNat[n.id],c=capXY(n),hs=(k&&k.houses||[]).slice(0,150);for(let i=1;i<hs.length;i++){let b=null,bd=1e9;for(let j=0;j<i;j++){const d=dist(hs[i].x,hs[i].y,hs[j].x,hs[j].y);if(d<bd){bd=d;b=hs[j]}}if(b&&bd<12)out.push({a:{x:hs[i].x,y:hs[i].y},b:{x:b.x,y:b.y}})}if(hs[0])out.push({a:c,b:{x:hs[0].x,y:hs[0].y}});for(const id in n.rel){const o=civ.nations[id];if(+id>n.id&&o&&o.alive&&o.caps&&o.caps.power&&n.rel[id].trade)out.push({a:c,b:capXY(o),color:'#bff'})}}return out},
+ electrification(x,y,h){const n=h&&h.k&&h.k.civId!=null?civ.nations[h.k.civId]:null;if(!n||!n.caps||!n.caps.power)return 0;return Math.min(1,.45+(n.best.current||0)*2+(n.best.light||0)*.5)},
+ genes(p){const now=performance.now();if(p._ap&&now-p._apT<5000)return p._ap;const c=civ.people[p.id];if(!c)return null;const a=V.personAppearance(civ,p.id);if(!a)return null;
+  p._ap={skin:a.skinColor,hair:a.hairColor,eyes:a.eyeColor,height:a.height,build:BUILD[a.build]||1,tint:a.clothing&&a.clothing.color,clothing:a.clothing?a.clothing.style+' '+a.clothing.garment:''};p._apT=now;return p._ap},
+ codex(tab){const N=civ.nations;
+  if(tab=='nations')return N.map(n=>({id:'n'+n.id,name:(n.alive?'':'✝ ')+n.name,sub:`${n.gov} · pop ${n.pop}${n.leader?' · '+n.leader.title+' '+n.leader.name:''}`,color:n.color}));
+  if(tab=='leaders'){const o=[];for(const n of N){if(!n.alive)continue;if(n.leader)o.push({id:'L'+n.id,name:`${n.leader.title} ${n.leader.name}`,sub:'ruler of '+n.name,color:n.color});for(const f of n.factions)o.push({id:'x'+f.id,name:f.name,sub:`faction · ${n.name} · ${(f.influence*100)|0}%`,color:n.color})}
+   Object.values(civ.families).filter(f=>f.living>0).sort((a,b)=>b.living-a.living).slice(0,80).forEach(f=>o.push({id:'f'+f.id,name:'House '+f.name,sub:`family · ${N[f.nat]?N[f.nat].name:''} · ${f.living} living`,color:N[f.nat]&&N[f.nat].color}));return o}
+  if(tab=='culture'){const o=[];for(const n of N){if(!n.alive)continue;o.push({id:'c'+n.id,name:'Culture of '+n.name,sub:n.cult.art.name,color:n.color},{id:'l'+n.id,name:'Language: '+n.lang.name,sub:n.lang.family+' family · '+n.name,color:n.color});n.cult.sports.forEach((sp,i)=>o.push({id:'s'+n.id+'_'+i,name:'Sport: '+sp.name,sub:n.name,color:n.color}));n.cult.festivals.forEach((f,i)=>o.push({id:'e'+n.id+'_'+i,name:'Festival: '+f.name,sub:f.occasion+' · '+n.name,color:n.color}))}return o}
+  if(tab=='inventions')return civ.items.filter(i=>!i.base).sort((a,b)=>b.year-a.year||b.id-a.id).slice(0,400).map(i=>({id:'i'+i.id,name:`Yr ${i.year} · ${i.name}`,sub:(i.milestone?'★ '+i.milestone+' · ':'')+(N[i.by]?N[i.by].name:'')+(i.lost?' · lost':''),color:i.milestone?'#ffd77a':N[i.by]&&N[i.by].color}));
+  if(tab=='genes')return P.slice(0,400).map(p=>{const c=civ.people[p.id];if(!c)return null;const ph=GN.phenotype(c.g);return{id:'g'+p.id,name:p.name,sub:`${ph.heightCm} cm · ${ph.hair} hair · ${ph.eye} eyes${ph.disease?' · wasting sickness':''}`,color:GN.appearance(c.g).skinColor}}).filter(Boolean);
+  if(tab=='history')return[{id:'chron',name:'Chronicle of the peoples',sub:civ.chron.length+' entries'},{id:'tech',name:'Inventions timeline (milestones)',sub:Object.keys(civ.milestones).length+' reached'}];
+  return[]},
+ story(tab,id){const N=civ.nations,ty=id[0],rest=id.slice(1);
+  if(tab=='nations'){const n=N[+rest];if(!n)return'';const I=V.nationInfo(civ,n.id),k=kingByNat[n.id];
+   return `<h3 style="margin:2px 0;color:${n.color}">${esc(n.name)}${n.alive?'':' (fallen)'}</h3>`+(n.leader?`Ruler: <span class=lk data-cx="leaders:L${n.id}">${esc(n.leader.title+' '+n.leader.name)}</span><br>`:'No ruler<br>')+
+   `Language: <span class=lk data-cx="culture:l${n.id}">${esc(n.lang.name)}</span> · Culture: <span class=lk data-cx="culture:c${n.id}">${esc(n.cult.art.name)}</span><br>Sports: ${n.cult.sports.map((sp,i)=>`<span class=lk data-cx="culture:s${n.id}_${i}">${esc(sp.name)}</span>`).join(', ')}<br>Festivals: ${n.cult.festivals.map((f,i)=>`<span class=lk data-cx="culture:e${n.id}_${i}">${esc(f.name)}</span>`).join(', ')}<br>Factions: ${n.factions.map(f=>`<span class=lk data-cx="leaders:x${f.id}">${esc(f.name)}</span>`).join(', ')}<br>Great houses: ${I.families.map(f=>`<span class=lk data-cx="leaders:f${f.id}">${esc(f.name)}</span> (${f.living})`).join(', ')||'—'}<br>Relations: ${I.rels.map(r=>`<span class=lk data-cx="nations:n${r.id}">${esc(r.name)}</span>${r.war?' ⚔':r.alliance?' 🤝':r.trade?' ⚖':r.embargo?' ⛔':''}`).join(', ')||'—'}<br>Milestones: ${I.milestones.map(m=>{const v=civ.milestones[m];return `<span class=lk data-cx="inventions:i${v.item}">${m}</span>`}).join(', ')||'none'}<hr>`+pre(V.describeNation(civ,n.id))+(k&&k.cx!=null?`<br><button class=btn data-fly="${k.cx},${k.cy}">📍 Go to</button>`:'')}
+  if(tab=='leaders'){if(ty=='L'){const n=N[+rest],l=n&&n.leader;if(!l)return'No ruler.';return `<h3 style=margin:2px 0>${esc(l.title+' '+l.name)}</h3>of <span class=lk data-cx="nations:n${n.id}">${esc(n.name)}</span>${byId.get(l.id)?` · <span class=lk data-cx="people:${l.id}">person page</span>`:''}<br>Policies: ${Object.entries(l.policies).map(([k,v])=>k+' '+v).join(', ')}`+pre(CU.describeLeader(l))+`<br><b>Past rulers</b><br>${n.pastLeaders.slice(-12).reverse().map(x=>`${esc(x.title+' '+x.name)} (${x.since}–${x.until})`).join('<br>')||'—'}`}
+   if(ty=='x')return '<h3 style=margin:2px 0>Faction</h3>'+pre(V.describeFaction(civ,isNaN(+rest)?rest:+rest)).replace(/^/,'');
+   if(ty=='f'){const F=V.familyInfo(civ,+rest);if(!F)return'';return `<h3 style=margin:2px 0>House ${esc(F.name)}</h3>`+pre(V.describeFamily(civ,+rest))+'<br><b>Members</b><br>'+F.members.map(m=>byId.get(m.id)?`<span class=lk data-cx="people:${m.id}">${esc(m.name)}</span>`:`${m.died!=null?'✝':''}${esc(m.name)}`).join(', ')}}
+  if(tab=='culture'){const[a,b]=rest.split('_').map(Number),n=N[a];if(!n)return'';if(ty=='c')return `<h3 style=margin:2px 0>Culture of ${esc(n.name)}</h3>`+pre(CU.describeCulture(n.cult));if(ty=='l')return '<h3 style=margin:2px 0>Language</h3>'+pre(V.describeLanguageOf(civ,a));if(ty=='s')return '<h3 style=margin:2px 0>Sport</h3>'+pre(V.describeSport(civ,a,b));if(ty=='e'){const f=n.cult.festivals[b];return f?`<h3 style=margin:2px 0>${esc(f.name)}</h3>A festival of <span class=lk data-cx="nations:n${n.id}">${esc(n.name)}</span>, held for ${esc(f.occasion)} and celebrated with ${esc(f.activity)}.`:''}}
+  if(tab=='inventions'){const it=civ.items[+rest];if(!it)return'';return `<h3 style=margin:2px 0>${esc(it.name)}</h3>`+pre(V.describeInvention(civ,it.id))+`<br><b>Made from:</b> ${it.parts.map(x=>x===it.id?'itself':civ.items[x]?`<span class=lk data-cx="inventions:i${x}">${esc(civ.items[x].name)}</span>`:'?').join(' + ')||'—'}<br><b>Used in:</b> ${civ.items.filter(o=>o.id!==it.id&&o.parts.includes(it.id)).slice(0,25).map(o=>`<span class=lk data-cx="inventions:i${o.id}">${esc(o.name)}</span>`).join(', ')||'—'}`}
+  if(tab=='genes'){const c=civ.people[+rest];if(!c)return'';const p=findP(+rest),ap=V.personAppearance(civ,c.id),ph=GN.phenotype(c.g);
+   return `<h3 style=margin:2px 0>${esc(p?p.name:c.name)}</h3>${sw(ap.skinColor)} skin ${sw(ap.hairColor)} ${ph.hair} hair ${sw(ap.eyeColor)} ${ph.eye} eyes · ${ph.heightCm} cm, ${ph.build} build<br>Intellect ${ph.intel.toFixed(2)} · strength ${ph.strength.toFixed(2)} · longevity ${ph.longevity.toFixed(2)} · plague resistance ${ph.resist.toFixed(2)}${ph.disease?' · <b>has the wasting sickness</b>':''}<br>Clothing: ${esc(ap.clothing.style)} ${esc(ap.clothing.garment)}`+pre('Genome: '+GN.describeGenome(c.g))+(p?familyTree(p):'')+(p?`<span class=lk data-cx="people:${p.id}">→ full person page</span>`:'')+`<br><code style="font-size:10px;word-break:break-all;opacity:.55">${c.g}</code>`}
+  if(tab=='history'){if(id=='chron')return '<h3 style=margin:2px 0>Chronicle of the peoples</h3>'+civ.chron.slice(-400).reverse().map(e=>esc(e.text)).join('<br>');
+   if(id=='tech')return '<h3 style=margin:2px 0>Inventions timeline</h3>'+Object.entries(civ.milestones).sort((a,b)=>a[1].year-b[1].year).map(([k,v])=>`Year ${v.year}: <b>${k}</b> — <span class=lk data-cx="inventions:i${v.item}">${esc(civ.items[v.item]?civ.items[v.item].name:'?')}</span> in <span class=lk data-cx="nations:n${v.nation}">${esc(N[v.nation]?N[v.nation].name:'?')}</span>${v.person!=null?' by '+esc(fullNm(v.person)):''}`).join('<br>')}
+  return''}};
+function registerCivLayer(){HK.layer=civLayer;civRefresh();houseVer++}
+
+// ================= HUD =================
+const hud=document.getElementById('hud'),kd=document.getElementById('kd'),ins=document.getElementById('ins'),altD=document.getElementById('alt');
+function level(){return cam.alt>900?'Orbit':cam.alt>120?'Region':'Ground'}
+function fmtAlt(a){const km=a*6.371;return km>=1?km.toFixed(km<10?1:0)+' km':(km*1000|0)+' m'}
+let fps=60,frames=0,fpsT=0;
+function faithGauge(){const G=mind.gods(),f=G.followers,tot=Math.max(1,P.length);const rows=[['the true god (you)','#ffd77a',f.true||0]];for(const id in G.byGod){const g=G.byGod[id];rows.push([`${g.name} <span style=opacity:.6>(${g.kind}${g.domain?', '+g.domain:''})</span>`,g.color||'#a8f',g.followers])}rows.push(['no god','#777',f.none||0]);
+ return '<hr style="border-color:#333"><b>Faith</b><br>'+rows.map(([n,c,v])=>`<span class=bar style="width:${Math.max(1,v/tot*120)}px;background:${c}"></span> ${v} · ${n}`).join('<br>')}
+function drawHUD(){const alive=kings.filter(k=>!k.dead&&k.pop>0);
+ hud.innerHTML=`<b>GODBOX · EARTH</b> — you are their one true god. World ${ages}; it never ends unless you end it.<br>Year ${yr|0}. Population ${P.length}. Homes ${houses.length}. Kingdoms ${alive.length}.<br>Time ×${speed}${paused?' (paused)':''} · ${fps|0} fps · ${level()} view${civ?`<br>Era: <span class=lk data-cx="history:tech">${civEra()}</span> · ${civ.items.filter(i=>!i.base).length} inventions · ${civ.nations.filter(n=>n.alive&&n.caps&&n.caps.power).length} electrified nations`:''}`;
+ kd.style.top=(hud.offsetHeight+16)+'px';kd.innerHTML='<b>Kingdoms</b><br>'+(alive.map(k=>`<span style=color:${k.c};cursor:pointer data-k=${kings.indexOf(k)} title='fly there'>■</span> <span class=lk style=color:${k.c} data-cx="nations:${k.civId!=null?'n'+k.civId:k.id}">${k.name}</span>: ${k.pop} people, ${k.houses.length} homes, ${k.food|0} food, ${k.wood|0} wood${k.war.size?' ⚔ '+[...k.war].filter(o=>!o.dead).map(o=>o.name).join(','):''}`).join('<br>')||'<i>The world is empty. Place a human or a tribe.</i>')+(mind.real?faithGauge():'');
+ kd.querySelectorAll('[data-k]').forEach(s=>s.onclick=()=>{const k=kings[s.dataset.k];if(k.cx!=null){follow=false;flyTo(k.cx,k.cy,150)}});
+ altD.innerHTML=`Altitude ${fmtAlt(cam.alt)} · ${level()}<br>${(90-cam.ty/TH*180).toFixed(1)}°, ${(cam.tx/TW*360-180).toFixed(1)}°`;
+ if(sel){ins.style.display='block';const s=sel,age=s.age|0;const desc=mind.describe(s);const g=mind.god(s);
+  ins.innerHTML=(s.dead?`<div style="text-align:center;border:1px solid #886;padding:6px;margin-bottom:6px;background:#1a1712"><b style=color:#f99>✝ In memory of</b><br><b>${s.name}</b><br>Year ${s.born|0} – Year ${s.died|0} · lived ${age} years<br>${s.cause?'Died of '+s.cause:''}<br>${s.kids} children · ${s.kills} killed${g?'<br>Kept faith with '+g:''}</div>`:'')+
+  `<b style=color:${s.k?s.k.c:'#ccc'}>${s.name}</b>, ${s.k?'of '+kLink(s.k):'belonging to no kingdom'} <span class=lk data-cx="people:${s.id}">📖</span><br>Age ${age}. Health ${Math.max(0,s.hp)|0}. Hunger ${s.hunger|0}${s.sick?'. <span style=color:#7f3>Sick.</span>':''}<br>Strength ${s.str.toFixed(1)}. Kindness ${s.kind.toFixed(1)}. Faith ${Math.min(1,s.faith).toFixed(2)} (${mind.faithOf(s)})${g?`<br>Worships: <b>${g}</b>`:''}<br>Doing: ${s.job}${s.mind?' (wants: '+s.mind.action+')':''}. Children ${s.kids}. Kills ${s.kills}<br><i>"${s.thought}"</i>`+
+  (desc?`<hr><div style="font-size:12px">${desc}</div>`:'')+`<div style="margin:6px 0">${s.dead?'':`<button class=btn id=fbtn>${follow?'⏹ Stop following':'🎥 Follow'}</button> `}<button class=btn id=gbtn>📍 Go to</button> <button class=btn id=xbtn>✕</button></div><b>Life so far</b><br><div style='font-size:12px'>${s.life.slice().reverse().join('<br>')}</div>`;
+  const fb=document.getElementById('fbtn');if(fb)fb.onclick=toggleFollow;document.getElementById('gbtn').onclick=()=>{follow=false;flyTo(s.x,s.y,25)};document.getElementById('xbtn').onclick=()=>{sel=null;follow=false}}else ins.style.display='none'}
+
+// ================= LOOP =================
+let last=performance.now(),acc1=0,acc2=0,acc3=0,acc4=0,lastAltBand=-1;
+function loop(now){const rdt=Math.min(.1,Math.max(0,(now-last)/1000));last=now;frames++;fpsT+=rdt;if(fpsT>=.5){fps=frames/fpsT;frames=0;fpsT=0}
+ const dt=rdt*60;if(!paused){if(speed<1)step(dt*speed);else for(let k=0;k<speed;k++)step(dt)}
+ if(sunLock)sunDir.copy(sunLock);else sunDir.set(Math.cos(simT*.004),.25,Math.sin(simT*.004)).normalize();sun.position.copy(sunDir).multiplyScalar(5000);sunMesh.position.copy(sunDir).multiplyScalar(3e5);sunGlow.position.copy(sunMesh.position);
+ updateCamera(rdt);
+ acc1+=rdt;acc2+=rdt;acc3+=rdt;acc4+=rdt;
+ if(acc1>.5){acc1=0;updateOwners();burning=[];for(let i=0;i<NT;i++)if(F[i]>0&&burning.length<3000){const x=i%TW,y=(i/TW)|0;if(dist(x,y,cam.tx,cam.ty)<40)burning.push(i)}}
+ const band=Math.round(Math.log(cam.alt)*3);if(band!==lastAltBand){lastAltBand=band;dirtyC=true}
+ if(dirtyH)rebuildHeights();if(dirtyC&&acc2>.25){acc2=0;rebuildColors()}
+ if(acc3>1){acc3=0;drawMini();civRefresh()}if(acc4>.2){acc4=0;drawHUD()}
+ const nearG=cam.alt<500;[treeOak,treePine,farmIM].forEach(m=>m.visible=nearG);if(nearG&&(treesDirty||treesKey!==Math.round(cam.tx)+','+Math.round(cam.ty)))rebuildTrees();
+ if(houseVer!==builtHouseVer&&(frames%15==0||houseVer-builtHouseVer>3))rebuildHouses();
+ const showH=cam.alt<1200;for(const k in houseMeshes)houseMeshes[k].visible=showH;for(const k in templeMeshes)templeMeshes[k].visible=showH;roads.visible=cam.alt<1000&&cam.alt>15;
+ cityM.uniforms.uA.value=Math.min(1,Math.max(0,(cam.alt-80)/300));
+ syncPeople(now/1000);updateFX(rdt);
+ const camUp=camera.position.clone().normalize(),day=Math.max(0,Math.min(1,camUp.dot(sunDir)*3+.3)),low=Math.max(0,Math.min(1,1-(cam.alt-60)/700));hemi.intensity=.25+.75*day*low;
+ scene.background.setRGB(.38*day*low,.6*day*low,.95*day*low);scene.fog.color.copy(scene.background);if(low>0){scene.fog.near=cam.alt*4+150;scene.fog.far=cam.alt*14+900}else{scene.fog.near=1e6;scene.fog.far=2e6}
+ hemi.intensity=.18+.25*low*day;
+ renderer.render(scene,camera);requestAnimationFrame(loop)}
+newWorld();rebuildHeights();rebuildColors();drawMini();drawHUD();requestAnimationFrame(loop);
+window.GB={_lines:()=>[tradeL,powerL].map(L=>{const A=L.geometry.attributes.position.array,n=L.geometry.drawRange.count;let mn=1e9,mx=0,bad=0;for(let i=0;i<n;i++){const r=Math.hypot(A[i*3],A[i*3+1],A[i*3+2]);if(!isFinite(r))bad++;else{mn=Math.min(mn,r);mx=Math.max(mx,r)}}return{n,mn,mx,bad}}),_drawTest:l=>drawLines(tradeL,l,1.2),registerLayer:l=>{HK.layer=l;civRefresh();houseVer++;log('A civilization layer awakens.')},HK,openCodex,get civ(){return civ},get MW(){return MW},TW,TH,tidx,at,dist,near,get histAll(){return histAll},get fallen(){return fallen},get P(){return P},get kings(){return kings},get houses(){return houses},get yr(){return yr},cam,flyTo,act:(x,y,t)=>{const o=tool;tool=t;act(x,y,true);tool=o},setSpeed:s=>{speed=s},select:p=>{sel=p},toggleFollow,get fps(){return fps},level,mind,save,load,setSun:a=>{simT=a/.004},sunOver:(x,y,day)=>{sunLock=x==null?null:dirOf(x,y,new THREE.Vector3()).multiplyScalar(day?1:-1).add(new THREE.Vector3(0,.15,0)).normalize()},assets:AS.real,get deaths(){return deathCauses},get births(){return births},minds:mind.real};
+</script></body></html>
