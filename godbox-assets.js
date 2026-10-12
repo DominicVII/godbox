@@ -23,6 +23,7 @@
  *   buildHuman({ clothingColor })   -> { geometry, material, update(t), animated:true }
  *   buildSheep(), buildDeer()       -> same shape
  *   createAnimatedInstances(asset, count) -> THREE.InstancedMesh with per-instance attributes
+ *   rigDepthMaterial(asset) -> MeshDepthMaterial for mesh.customDepthMaterial (shadows follow the animation)
  *   setInstanceAnim(mesh, i, { state, phase, color })   then mesh.userData.flagAnim()
  *   ANIM = { IDLE:0, WALK:1, PRAY:2, FIGHT:3 }   (animals: IDLE=graze, WALK=walk, 2/3 = run/alert)
  *
@@ -353,7 +354,19 @@ function rigMaterial(kind) {
 }
 function animatedAsset(geometry, kind, defaultCloth) {
   const { mat, uniforms } = rigMaterial(kind);
-  return { geometry, material: mat, animated: true, defaultColor: new THREE.Color(defaultCloth), uniforms, update(t) { uniforms.uTime.value = t; } };
+  return { geometry, material: mat, animated: true, kind, defaultColor: new THREE.Color(defaultCloth), uniforms, update(t) { uniforms.uTime.value = t; } };
+}
+/** Shadow-map depth material for an animated asset (set as mesh.customDepthMaterial): the shadow moves with the rig. */
+export function rigDepthMaterial(asset) {
+  const mat = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.uTime = asset.uniforms.uTime;
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>\n#define RIG_KIND ${asset.kind}\n${RIG_GLSL}`)
+      .replace('#include <begin_vertex>', 'vec3 rigOff; mat3 rigRootR; mat3 rigR = rigRot(rigOff, rigRootR);\n vec3 transformed = rigRootR * (rigR * (position - aPivot) + aPivot) + rigOff;');
+  };
+  mat.customProgramCacheKey = () => 'godbox-rig-depth-' + asset.kind;
+  return mat;
 }
 
 /** Make an InstancedMesh for an animated asset (clones geometry to hold per-instance iAnim/iCloth). */

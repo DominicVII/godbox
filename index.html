@@ -140,8 +140,9 @@ const atmo=new THREE.Mesh(new THREE.SphereGeometry(R*1.045,96,48),new THREE.Shad
  vertexShader:LDV+'varying vec3 vN;varying vec3 vP;varying vec3 vW;void main(){vN=normalize(normalMatrix*normal);vec4 mv=modelViewMatrix*vec4(position,1.);vP=mv.xyz;vW=normalize(position);gl_Position=projectionMatrix*mv;\n#include <logdepthbuf_vertex>\n}',
  fragmentShader:LDF+'uniform vec3 uSun;varying vec3 vN;varying vec3 vP;varying vec3 vW;void main(){\n#include <logdepthbuf_fragment>\nfloat rim=1.-abs(dot(normalize(-vP),vN));float I=pow(rim,2.5)*1.3;float day=clamp(dot(vW,uSun)*1.2+.35,0.,1.);gl_FragColor=vec4(vec3(.3,.58,1.)*I*day,1.);}'}));
 scene.add(atmo);
+let starPts=null;
 {const n=5000,p=new Float32Array(n*3),c=new Float32Array(n*3);for(let i=0;i<n;i++){const v=new THREE.Vector3().randomDirection().multiplyScalar(4e5);p.set([v.x,v.y,v.z],i*3);const b=.5+Math.random()*.5;c.set([b,b,b*(.9+Math.random()*.2)],i*3)}
- const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(p,3));g.setAttribute('color',new THREE.BufferAttribute(c,3));scene.add(new THREE.Points(g,new THREE.PointsMaterial({size:1.6,sizeAttenuation:false,vertexColors:true,fog:false})))}
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(p,3));g.setAttribute('color',new THREE.BufferAttribute(c,3));scene.add(starPts=new THREE.Points(g,new THREE.PointsMaterial({size:1.6,sizeAttenuation:false,vertexColors:true,fog:false,transparent:true})))}
 const sunMesh=new THREE.Mesh(new THREE.SphereGeometry(5000,24,12),new THREE.MeshBasicMaterial({color:0xfff4d0,fog:false}));scene.add(sunMesh);
 function glowTex(){const c=document.createElement('canvas');c.width=c.height=64;const g=c.getContext('2d'),gr=g.createRadialGradient(32,32,0,32,32,32);gr.addColorStop(0,'rgba(255,255,255,1)');gr.addColorStop(.3,'rgba(255,255,255,.5)');gr.addColorStop(1,'rgba(255,255,255,0)');g.fillStyle=gr;g.fillRect(0,0,64,64);return new THREE.CanvasTexture(c)}
 const GT=glowTex();const sunGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:GT,color:0xffe9b0,fog:false,depthWrite:false,blending:THREE.AdditiveBlending}));sunGlow.scale.setScalar(60000);scene.add(sunGlow);
@@ -160,7 +161,7 @@ const AS=A?{
  temple:c=>A.buildTemple({roofColor:new THREE.Color(c).getHex()}),
  tree:(sp,s)=>A.buildTree({species:sp,seed:s}),
  farm:()=>A.buildFarmPlot({size:6,crop:'wheat',growth:1}),
- crowd:n=>{const h=A.buildHuman();const m=A.createAnimatedInstances(h,n);m.userData.upd=t=>h.update(t);return m},
+ crowd:n=>{const h=A.buildHuman();const m=A.createAnimatedInstances(h,n);if(A.rigDepthMaterial)m.customDepthMaterial=A.rigDepthMaterial(h);m.userData.upd=t=>h.update(t);return m},
  anim:(m,i,s,ph,c,sk,hr)=>A.setInstanceAnim(m,i,{state:s,phase:ph,color:c,skin:sk,hair:hr}),
  flag:m=>m.userData.flagAnim(),ANIM:A.ANIM,real:true
 }:{
@@ -170,7 +171,7 @@ const AS=A?{
  farm:()=>({geometry:colGeo(new THREE.BoxGeometry(6,.15,6).translate(0,.07,0),0xc8b04a),material:fbMat}),
  crowd:n=>{const g=mergeGeometries([colGeo(new THREE.CylinderGeometry(.22,.28,1.1,6).translate(0,.75,0),0xffffff),colGeo(new THREE.SphereGeometry(.22,8,6).translate(0,1.5,0),0xf1c9a5)]);const m=new THREE.InstancedMesh(g,new THREE.MeshStandardMaterial({vertexColors:true,flatShading:true}),n);m.frustumCulled=false;for(let i=0;i<n;i++)m.setColorAt(i,new THREE.Color(1,1,1));m.userData.upd=()=>{};return m},
  anim:(m,i,s,ph,c)=>m.setColorAt(i,_c.set(c)),flag:m=>{if(m.instanceColor)m.instanceColor.needsUpdate=true},ANIM:{IDLE:0,WALK:1,PRAY:2,FIGHT:3},real:false};
-function IM(asset,n){const m=new THREE.InstancedMesh(asset.geometry,asset.material,n);m.count=0;m.frustumCulled=false;scene.add(m);return m}
+function IM(asset,n){const m=new THREE.InstancedMesh(asset.geometry,asset.material,n);m.count=0;m.frustumCulled=false;m.castShadow=m.receiveShadow=true;scene.add(m);return m}
 const _m=new THREE.Matrix4(),_up=new THREE.Vector3(),_fw=new THREE.Vector3(),_rt=new THREE.Vector3();
 function orientAt(pos,fwd,s){_up.copy(pos).normalize();_fw.copy(fwd).addScaledVector(_up,-fwd.dot(_up));if(_fw.lengthSq()<1e-8)_fw.set(0,1,0).cross(_up);_fw.normalize();_rt.crossVectors(_up,_fw);_m.makeBasis(_rt.multiplyScalar(s),_up.multiplyScalar(s),_fw.multiplyScalar(s));_m.setPosition(pos);return _m}
 function northAt(x,y,o=new THREE.Vector3()){const a=dirOf(x,Math.max(0,y-.05)),b=dirOf(x,Math.min(TH,y+.05));return o.subVectors(a,b).normalize()}
@@ -183,6 +184,134 @@ const treeOak=IM(AS.tree('oak',3),9000),treePine=IM(AS.tree('pine',5),9000),farm
 const MAXP=2500;const crowd=AS.crowd(MAXP);crowd.count=0;scene.add(crowd);
 const roadG=new THREE.BufferGeometry();const roadP=new Float32Array(60000*3);roadG.setAttribute('position',new THREE.BufferAttribute(roadP,3));roadG.setDrawRange(0,0);
 const roads=new THREE.LineSegments(roadG,new THREE.LineBasicMaterial({color:0xb79a6a}));roads.frustumCulled=false;scene.add(roads);
+
+// ================= SKY, LIGHT, WEATHER, GROUND =================
+// Close to the ground the world gets a sky (blue by day, red at either end of it, stars at night), a sun that warms
+// and dims as it sets, a moon, shadows, drifting clouds with storm cells that rain (snow in the cold), and grass underfoot.
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+sun.shadow.mapSize.set(2048,2048);sun.shadow.bias=-.0005;sun.shadow.normalBias=.35;sun.castShadow=true; // always on (toggling recompiles every lit shader); the map is only redrawn near the ground
+renderer.shadowMap.autoUpdate=false;let shadowLive=true;
+const moon=new THREE.DirectionalLight(0x9fb4ff,0);scene.add(moon,moon.target);
+terrain.receiveShadow=true;
+for(const m of[treeOak,treePine,crowd])m.castShadow=true;
+const SKY_GLSL='float h1(vec3 p){return fract(sin(dot(p,vec3(12.9898,78.233,37.719)))*43758.5453);}';
+// colour of the sky in direction d for an observer whose up is u (shared by the dome shader and the fog on the CPU)
+const skyU={uSun:{value:sunDir},uUp:{value:new THREE.Vector3(0,1,0)},uA:{value:0},uCov:{value:0}};
+const sky=new THREE.Mesh(new THREE.SphereGeometry(1,48,24),new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,depthTest:false,fog:false,uniforms:skyU,
+ vertexShader:LDV+'varying vec3 vD;void main(){vD=normalize(position);vec4 mv=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*mv;\n#include <logdepthbuf_vertex>\n}',
+ fragmentShader:LDF+'uniform vec3 uSun,uUp;uniform float uA,uCov;varying vec3 vD;'+SKY_GLSL+`void main(){
+#include <logdepthbuf_fragment>
+  vec3 d=normalize(vD);float e=dot(d,uUp),sa=dot(uSun,uUp),day=smoothstep(-.18,.22,sa),dusk=(1.-smoothstep(0.,.32,abs(sa+.02)));
+  vec3 sh=uSun-uUp*sa,dh=d-uUp*e;float toward=length(sh)>1e-4&&length(dh)>1e-4?max(dot(normalize(dh),normalize(sh)),0.):0.;
+  vec3 zen=mix(vec3(.01,.015,.04),vec3(.16,.38,.82),day),hor=mix(vec3(.035,.045,.08),vec3(.6,.74,.93),day);
+  hor=mix(hor,vec3(1.,.48,.2),dusk*(.25+.75*pow(toward,2.5)));zen=mix(zen,vec3(.3,.25,.42),dusk*.3);
+  vec3 c=mix(hor,zen,pow(clamp(e,0.,1.),.5));if(e<0.)c=hor*mix(1.,.55,clamp(-e*3.,0.,1.));
+  float sd=max(dot(d,uSun),0.);c+=vec3(1.,.8,.55)*pow(sd,18.)*.35*(day*.6+dusk)*step(-.05,e);
+  c+=vec3(step(.9978,h1(floor(d*380.)))*(1.-day)*(1.-dusk*.8)*smoothstep(0.,.12,e)*(1.-uCov));
+  c=mix(c,vec3(dot(c,vec3(.3,.55,.15)))*.8,uCov*.65);
+  gl_FragColor=vec4(c*uA,1.);}`}));
+sky.renderOrder=-10;sky.frustumCulled=false;scene.add(sky);
+function skyColor(d,u,s,cov,o){const e=d.dot(u),sa=s.dot(u),sm=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t)},day=sm(-.18,.22,sa),dusk=1-sm(0,.32,Math.abs(sa+.02));
+ const sh=s.clone().addScaledVector(u,-sa),dh=d.clone().addScaledVector(u,-e),tw=sh.length()>1e-4&&dh.length()>1e-4?Math.max(0,dh.normalize().dot(sh.normalize())):0,k=dusk*(.25+.75*tw**2.5);
+ o.setRGB(.035+(.6-.035)*day,.045+(.74-.045)*day,.08+(.93-.08)*day);o.r+=(1-o.r)*k;o.g+=(.48-o.g)*k;o.b+=(.2-o.b)*k;const g=(o.r*.3+o.g*.55+o.b*.15)*.8;o.r+=(g-o.r)*cov*.65;o.g+=(g-o.g)*cov*.65;o.b+=(g-o.b)*cov*.65;return o}
+// clouds: one shell above the land; storm cells (drifting, growing, dying) thicken and darken them; rain or snow falls beneath
+const CELLS=16,cellU=Array.from({length:CELLS},()=>new THREE.Vector4(0,0,0,0));
+const cloudU={uSun:{value:sunDir},uT:{value:0},uCells:{value:cellU}};
+const clouds=new THREE.Mesh(new THREE.SphereGeometry(R+48,192,96),new THREE.ShaderMaterial({transparent:true,depthWrite:false,side:THREE.DoubleSide,uniforms:cloudU,
+ vertexShader:LDV+'varying vec3 vP;void main(){vP=position;vec4 mv=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*mv;\n#include <logdepthbuf_vertex>\n}',
+ fragmentShader:LDF+`uniform vec3 uSun;uniform float uT;uniform vec4 uCells[${CELLS}];varying vec3 vP;
+ float hs(vec3 p){p=fract(p*.3183099+.1);p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+ float vn(vec3 x){vec3 i=floor(x),f=fract(x);f=f*f*(3.-2.*f);return mix(mix(mix(hs(i),hs(i+vec3(1,0,0)),f.x),mix(hs(i+vec3(0,1,0)),hs(i+vec3(1,1,0)),f.x),f.y),mix(mix(hs(i+vec3(0,0,1)),hs(i+vec3(1,0,1)),f.x),mix(hs(i+vec3(0,1,1)),hs(i+vec3(1,1,1)),f.x),f.y),f.z);}
+ float fbm(vec3 p){float v=0.,a=.5;for(int i=0;i<4;i++){v+=a*vn(p);p=p*2.03+vec3(1.7,9.2,3.1);a*=.5;}return v;}
+ void main(){
+#include <logdepthbuf_fragment>
+  vec3 p=normalize(vP);float storm=0.;for(int i=0;i<${CELLS};i++){vec4 c=uCells[i];storm=max(storm,c.w*smoothstep(.17,.02,distance(p,c.xyz)));}
+  vec3 q=p*7.+vec3(uT*.03,0.,uT*.017);float n=fbm(q)*.88+vn(q*9.1-vec3(uT*.02))*.12;
+  float cov=.5-storm*.28;float d=smoothstep(cov,cov+.13,n);if(d<.01)discard;
+  float sl=dot(p,uSun),lit=smoothstep(-.22,.2,sl);vec3 col=mix(vec3(.04,.05,.08),vec3(1.),lit);
+  col=mix(col,col*vec3(1.,.66,.45),(1.-smoothstep(0.,.28,abs(sl)))*lit);col*=mix(1.,.42,storm*smoothstep(.25,.9,d));
+  if(!gl_FrontFacing)col*=.72;
+  gl_FragColor=vec4(col,d*mix(.8,.96,storm));}`}));
+clouds.renderOrder=3;scene.add(clouds);
+const storms=[];let stormT=0;
+function stormHere(x,y,life=900){storms.push({x,y,v:.004,age:0,life,max:1})} // the god's rain gathers a storm
+function stormStep(ds){ // ds in simT (the sun's clock): cells drift east, swell, rain, fade
+ while(storms.length<11)storms.push({x:Math.random()*TW,y:TH*(.12+Math.random()*.76),v:.003+Math.random()*.006,age:0,life:900+Math.random()*2400,max:.45+Math.random()*.55});
+ for(let i=storms.length-1;i>=0;i--){const c=storms[i];c.age+=ds;c.x=wrapX(c.x+c.v*ds);const f=c.age/c.life;c.a=c.max*Math.max(0,Math.min(1,f*5,(1-f)*5));if(f>=1)storms.splice(i,1)}
+ for(let i=0;i<CELLS;i++){const c=storms[i];if(c){const d=dirOf(c.x,c.y);cellU[i].set(d.x,d.y,d.z,c.a)}else cellU[i].set(0,0,0,0)}}
+function stormAt(x,y){const d=dirOf(x,y),q=new THREE.Vector3();let v=0;for(const c of storms){const k=Math.max(0,Math.min(1,(.17-d.distanceTo(dirOf(c.x,c.y,q)))/.15));v=Math.max(v,(c.a||0)*k*k*(3-2*k))}return v}
+// rain / snow: streaks in a box around the eye, only near the ground
+const RN=1600,rainP=new Float32Array(RN*6),rainG=new THREE.BufferGeometry();rainG.setAttribute('position',new THREE.BufferAttribute(rainP,3));rainG.setDrawRange(0,0);
+const rainM=new THREE.LineBasicMaterial({color:0xb4c4dc,transparent:true,opacity:.5,depthWrite:false});const rainL=new THREE.LineSegments(rainG,rainM);rainL.frustumCulled=false;scene.add(rainL);
+const drops=Array.from({length:RN},()=>({u:(Math.random()-.5)*80,v:(Math.random()-.5)*80,h:Math.random()*40,s:.7+Math.random()*.6}));
+const _rc=new THREE.Vector3(),_re1=new THREE.Vector3(),_re2=new THREE.Vector3(),_rq=new THREE.Vector3();
+function updateRain(rdt,k,snow){const n=Math.round(RN*k);rainG.setDrawRange(0,n*2);if(!n)return;const ct=tileOfDir(camera.position);surf(ct.x,ct.y,0,_rc);const up=_rq.copy(_rc).normalize();
+ _re1.set(0,1,0).cross(up);if(_re1.lengthSq()<1e-6)_re1.set(1,0,0);_re1.normalize();_re2.crossVectors(up,_re1);const fall=snow?5:60,len=snow?.18:2.4;rainM.color.set(snow?0xffffff:0xc4d2e6);rainM.opacity=snow?.9:.6;
+ for(let i=0;i<n;i++){const d=drops[i];d.h-=fall*d.s*rdt;if(snow){d.u+=Math.sin(d.h*.7+i)*rdt*1.5}if(d.h<0){d.h=34+Math.random()*6;d.u=(Math.random()-.5)*80;d.v=(Math.random()-.5)*80}
+  const x=_rc.x+_re1.x*d.u+_re2.x*d.v+up.x*d.h,y=_rc.y+_re1.y*d.u+_re2.y*d.v+up.y*d.h,z=_rc.z+_re1.z*d.u+_re2.z*d.v+up.z*d.h,o=i*6;
+  rainP[o]=x;rainP[o+1]=y;rainP[o+2]=z;rainP[o+3]=x-up.x*len;rainP[o+4]=y-up.y*len;rainP[o+5]=z-up.z*len}
+ rainG.attributes.position.needsUpdate=true}
+// the ground up close: fine variation in the grass and soil (shader), then tufts and wild flowers around the eye
+const terrainNear={value:0};
+terrain.material.onBeforeCompile=sh=>{sh.uniforms.uNear=terrainNear;
+ sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 vWP;').replace('#include <begin_vertex>','#include <begin_vertex>\nvWP=position;');
+ sh.fragmentShader=sh.fragmentShader.replace('#include <common>',`#include <common>
+varying vec3 vWP;uniform float uNear;
+float th(vec3 p){p=fract(p*.3183099+.1);p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+float tn(vec3 x){vec3 i=floor(x),f=fract(x);f=f*f*(3.-2.*f);return mix(mix(mix(th(i),th(i+vec3(1,0,0)),f.x),mix(th(i+vec3(0,1,0)),th(i+vec3(1,1,0)),f.x),f.y),mix(mix(th(i+vec3(0,0,1)),th(i+vec3(1,0,1)),f.x),mix(th(i+vec3(0,1,1)),th(i+vec3(1,1,1)),f.x),f.y),f.z);}`)
+ .replace('#include <color_fragment>',`#include <color_fragment>
+if(uNear>0.){float g=tn(vWP*.16)*.5+tn(vWP*.63)*.32+tn(vWP*2.4)*.18;diffuseColor.rgb*=mix(1.,.8+.4*g,uNear);diffuseColor.rgb+=vec3(.025,-.012,-.02)*(tn(vWP*.045)-.5)*2.*uNear;}`)};
+terrain.material.customProgramCacheKey=()=>'godbox-terrain-near';
+const tuftG=(()=>{const pos=[],col=[],nor=[];let r=1;const rnd=()=>((r=(r*16807)%2147483647)/2147483647);
+ const blade=(a,h,w,lean,c)=>{const lx=Math.cos(a+1.57)*w,lz=Math.sin(a+1.57)*w;pos.push(-lx,0,-lz,lx,0,lz,Math.cos(a)*lean,h,Math.sin(a)*lean);const c0=new THREE.Color(c).multiplyScalar(.7),c1=new THREE.Color(c);col.push(c0.r,c0.g,c0.b,c0.r,c0.g,c0.b,c1.r,c1.g,c1.b);nor.push(0,1,0,0,1,0,0,1,0)};
+ for(let i=0;i<6;i++)blade(i*1.05+rnd(),.45+rnd()*.55,.07,.1+rnd()*.2,0x9ccc6e);
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));g.setAttribute('normal',new THREE.Float32BufferAttribute(nor,3));return g})();
+const flowerG=(()=>{const pos=[],col=[],nor=[];const tri=(a,b,c,k)=>{pos.push(...a,...b,...c);for(let i=0;i<3;i++){col.push(...k);nor.push(0,1,0)}};
+ tri([-.03,0,0],[.03,0,0],[0,.55,0],[.25,.45,.18]);const hd=.12;tri([-hd,.55,-hd],[hd,.55,-hd],[0,.6,hd],[1,1,1]);tri([-hd,.55,hd],[hd,.55,hd],[0,.6,-hd],[1,1,1]);
+ const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));g.setAttribute('normal',new THREE.Float32BufferAttribute(nor,3));return g})();
+const NTUFT=6000,NFLOW=900,tuftM=new THREE.MeshLambertMaterial({vertexColors:true,side:THREE.DoubleSide});
+const tufts=new THREE.InstancedMesh(tuftG,tuftM,NTUFT),flowers=new THREE.InstancedMesh(flowerG,tuftM,NFLOW);
+for(const m of[tufts,flowers]){m.count=0;m.frustumCulled=false;m.instanceColor=new THREE.InstancedBufferAttribute(new Float32Array(m===tufts?NTUFT*3:NFLOW*3),3);scene.add(m)}
+const FLOWC=[0xfff176,0xffffff,0xce93d8,0xff8a65,0x90caf9].map(c=>new THREE.Color(c));
+let tuftKey='';const _tp2=new THREE.Vector3(),_tf=new THREE.Vector3(),_tc=new THREE.Color();
+function rebuildTufts(){const cx=cam.tx,cy=cam.ty,key=Math.round(cx*10)+','+Math.round(cy*10);if(key===tuftKey)return;tuftKey=key;
+ let n=0,nf=0;const C=.07,RAD=2.3;
+ for(let j=Math.floor((cy-RAD)/C);j<=Math.ceil((cy+RAD)/C);j++){const y0=j*C;if(y0<0||y0>=TH)continue;const w=RAD/sinT(y0);
+  for(let i=Math.floor((cx-w)/C);i<=Math.ceil((cx+w)/C);i++){const ii=((i%5334)+5334)%5334,hh=((Math.imul(ii,374761393)+Math.imul(j,668265263))>>>0),f1=(hh%1000)/1000,f2=((hh>>>10)%1000)/1000,f3=((hh>>>20)%1000)/1000;
+   const x=wrapX((i+f1*1.6-.3)*C),y=(j+f2*1.6-.3)*C;if(dist(x,y,cx,cy)>RAD||(f3>.6&&f1>.5))continue;const t=at(x,y);if(t!=3&&t!=4)continue;
+   surf(x,y,-.05,_tp2);fwdHeading(x,y,f3*6.28,_tf);
+   if(t==3&&f3<.035&&nf<NFLOW){orientAt(_tp2,_tf,.6+f1*.4);flowers.setMatrixAt(nf,_m);flowers.setColorAt(nf,FLOWC[(hh>>>7)%FLOWC.length]);nf++;continue}
+   if(n>=NTUFT)continue;orientAt(_tp2,_tf,.45+f2*.5);tufts.setMatrixAt(n,_m);_tc.setRGB(.75+f1*.5,.8+f3*.4,.7+f2*.4);if(t==4)_tc.multiplyScalar(.7);tufts.setColorAt(n,_tc);n++}}
+ tufts.count=n;flowers.count=nf;for(const m of[tufts,flowers]){m.instanceMatrix.needsUpdate=true;m.instanceColor.needsUpdate=true}}
+// a fire in the square of the nearest town, from dusk until the small hours
+const townFire=new THREE.PointLight(0xff9a40,0,70,1.5);scene.add(townFire);
+const _cu=new THREE.Vector3(),_cs=new THREE.Color(),_sc0=new THREE.Color(0xfff2dd),_sc1=new THREE.Color(0xff8c4a);
+function updateWorldLook(rdt,low){
+ const up=_cu.copy(camera.position).normalize(),sa=up.dot(sunDir),sm=(a,b,x)=>{const t=Math.max(0,Math.min(1,(x-a)/(b-a)));return t*t*(3-2*t)};
+ if(!paused)stormStep(rdt*60*speed*(scale=='intimate'?.04:scale=='fast'?3:1));stormT+=rdt*(paused?0:1);cloudU.uT.value=stormT;
+ const ct=tileOfDir(camera.position),cov=low>0?stormAt(ct.x,ct.y)*low:0,lat=Math.abs(.5-ct.y/TH)*2,tt=at(ct.x,ct.y);
+ // the sun: warm and low at the ends of the day, gone at night (from the ground; from orbit the sunlit half stays lit)
+ const dusk=1-sm(0,.32,Math.abs(sa+.02)),lit=sm(-.12,.06,sa);
+ sun.color.copy(_sc0).lerp(_sc1,dusk*low*.8);sun.intensity=2.6*(1-low+low*lit)*(1-.55*cov);
+ moon.position.copy(sunDir).multiplyScalar(-5000).addScaledVector(up,1500);moon.intensity=.35*low*(1-lit)*(1-.6*cov);
+ skyU.uUp.value.copy(up);skyU.uA.value=low;skyU.uCov.value=cov;sky.visible=low>.001;sky.position.copy(camera.position);sky.scale.setScalar(Math.min(2e5,camera.far*.5));
+ atmo.visible=low<.97;if(starPts)starPts.material.opacity=1-low*sm(-.2,.05,sa);
+ skyColor(_cv.copy(up).multiplyScalar(.15).add(_fw2.copy(camera.getWorldDirection(_fw2)).addScaledVector(up,-camera.getWorldDirection(_fw3).dot(up)).normalize()).normalize(),up,sunDir,cov,_cs);
+ // shadows near the ground: the sun's shadow box follows the eye
+ const sh=low>.5&&lit>.05&&cam.alt<180,sc=sun.shadow.camera;
+ if(sh){const S2=Math.min(140,cam.alt*1.6+45);surf(cam.tx,cam.ty,0,sun.target.position);sun.position.copy(sun.target.position).addScaledVector(sunDir,600);sc.left=sc.bottom=-S2;sc.right=sc.top=S2;sc.near=1;sc.far=1400;sc.updateProjectionMatrix();sun.target.updateMatrixWorld();renderer.shadowMap.needsUpdate=true;shadowLive=true}
+ else if(shadowLive){sun.target.position.set(0,0,0);sun.target.updateMatrixWorld();sc.near=1;sc.far=1.001;sc.updateProjectionMatrix();renderer.shadowMap.needsUpdate=true;shadowLive=false} // one empty map: nothing shadowed
+ // weather underfoot
+ const snow=lat>.62||tt==9||tt==6||(tt==5&&lat>.45);updateRain(rdt,cam.alt<160?sm(.22,.6,cov/Math.max(low,.01))*low:0,snow);
+ // ground detail and grass
+ terrainNear.value=sm(320,40,cam.alt);const showT=cam.alt<70;tufts.visible=flowers.visible=showT;if(showT)rebuildTufts();
+ // the town fire
+ let best=null,bd=14;if(low>.3)for(const k of kings){if(k.dead||k.cx==null||!(k.houses&&k.houses.length>3))continue;const d=dist(k.cx,k.cy,cam.tx,cam.ty);if(d<bd){bd=d;best=k}}
+ const fireOn=best&&dayPart(best.cx,best.cy)!=='morning'&&dayPart(best.cx,best.cy)!=='afternoon';
+ if(fireOn){surf(best.cx,best.cy,2,townFire.position);townFire.intensity=(2600+Math.random()*900)*low;if(!paused&&Math.random()<.6){const g=surf(best.cx,best.cy,.5),u=g.clone().normalize();emit(g,u.clone().multiplyScalar(5+Math.random()*4).add(new THREE.Vector3().randomDirection().multiplyScalar(1.2)),.7+Math.random()*.5,Math.random()<.5?0xff6a1a:0xffc040,'fire')}}
+ else townFire.intensity=0;
+ return _cs}
+const _cv=new THREE.Vector3(),_fw2=new THREE.Vector3(),_fw3=new THREE.Vector3();
 
 // ================= PARTICLES & FX =================
 const NPART=6000;const pg=new THREE.BufferGeometry(),pp=new Float32Array(NPART*3),pc=new Float32Array(NPART*3);pg.setAttribute('position',new THREE.BufferAttribute(pp,3));pg.setAttribute('color',new THREE.BufferAttribute(pc,3));
@@ -197,7 +326,7 @@ function lightningFX(x,y,color=0xddeeff){const g=surf(x,y),up=g.clone().normaliz
 const meteors=[];
 function meteorFX(x,y){const g=surf(x,y),up=g.clone().normalize(),side=new THREE.Vector3().randomDirection().cross(up).normalize();const from=g.clone().addScaledVector(up,900).addScaledVector(side,900);
  const head=new THREE.Mesh(new THREE.SphereGeometry(4,10,8),new THREE.MeshBasicMaterial({color:0xffddaa,fog:false}));const tail=new THREE.Line(new THREE.BufferGeometry().setFromPoints([from,from]),new THREE.LineBasicMaterial({color:0xffaa55,fog:false}));scene.add(head,tail);meteors.push({x,y,from,to:g,t:0,head,tail})}
-function rainFX(x,y){fx.push({rain:{x,y},t:3,o:[]})}
+function rainFX(x,y){fx.push({rain:{x,y},t:3,o:[]});stormHere(x,y)}
 function explode(g){const up=g.clone().normalize();for(let i=0;i<500;i++){const v=new THREE.Vector3().randomDirection().multiplyScalar(30+Math.random()*60).addScaledVector(up,40);emit(g,v,1+Math.random()*1.5,Math.random()<.5?0xff8833:0xffdd66,'fire')}
  for(let i=0;i<200;i++)emit(g.clone().addScaledVector(up,5),new THREE.Vector3().randomDirection().multiplyScalar(12).addScaledVector(up,20),4,0x554c44,'smoke');const pl=new THREE.PointLight(0xff9944,40000,1200,1.2);pl.position.copy(g).addScaledVector(up,60);scene.add(pl);fx.push({o:[pl],t:.8})}
 
@@ -243,13 +372,84 @@ function newWorld(){SST.soul=null;kings=[];P=[];houses=[];byId=new Map();yr=0;se
  if(CIV){civStart()}else{civ=null;genWorld();mind.reset();for(let i=0;i<3;i++){const[x,y]=randLand();spawnTribe(x,y,5)}}
  const k0=P[0];cam.tx=k0.x;cam.ty=k0.y;cam.alt=2600;log(ages>1?'Let there be a new world.':'The world begins.');chronicle(`World ${ages} was made by your hand.`)}
 function near(x,y,r){return P.filter(p=>dist(p.x,p.y,x,y)<r)}
-function moveToward(p,dt){const dx=wdx(p.x,p.tx),dy=p.ty-p.y,s0=sinT(p.y),d=Math.hypot(dx*s0,dy);if(d>.01){const s=Math.min(d,dt*.06);let nx=wrapX(p.x+dx*s/d),ny=clampY(p.y+dy*s/d);if(land(at(nx,ny))||!land(at(p.x,p.y))){p.x=nx;p.y=ny;p.moving=true}else{p.tx=p.x;p.ty=p.y;p.moving=false}}else p.moving=false}
+// walking pace: the body the traits give (Fast walker, Slow...), age, and haste
+function pace(p){const b=p.mind&&p.mind.body;let v=1+(b?b.speed*.05:0);if(p.age<10)v*=.8;else if(p.age>65)v*=.75;if(p.job=='flee')v*=1.5;else if(p.job=='fight')v*=1.2;return Math.max(.4,Math.min(1.8,v))}
+// how hard a blow lands: the striker's damage against the struck one's health and armour (traits: Strong, Tough, Unaging...)
+function harm(a,b){const A=a&&a.mind&&a.mind.body,B=b&&b.mind&&b.mind.body;return(1+(A?A.damage:0)/15)*100/(100+Math.max(-60,(B?B.health:0)+(B?B.armor:0)*3))}
+function moveToward(p,dt){const dx=wdx(p.x,p.tx),dy=p.ty-p.y,s0=sinT(p.y),d=Math.hypot(dx*s0,dy);if(d>.01){const s=Math.min(d,dt*.06*pace(p));let nx=wrapX(p.x+dx*s/d),ny=clampY(p.y+dy*s/d);if(land(at(nx,ny))||!land(at(p.x,p.y))){p.x=nx;p.y=ny;p.moving=true}else{p.tx=p.x;p.ty=p.y;p.moving=false}}else p.moving=false}
+// ---- daily life (civ worlds): a home, a place of work by trade, and a day that follows the sun where one lives ----
+const HR=2*Math.PI/.004/24*.05; // one hour of the visible day in restT units (restT runs at year speed, the sun at simT speed)
+const sunNext=new THREE.Vector3(1,0,0),_dv=new THREE.Vector3();
+function dayPart(x,y){const up=dirOf(x,y,_dv),a=up.dot(sunDir),b=up.dot(sunNext);return a>.15?(b>=a?'morning':'afternoon'):a>-.2?(b>=a?'dawn':'evening'):'night'}
+const jitter=(x,y,r)=>[wrapX(x+(Math.random()-.5)*2*r/sinT(y)),clampY(y+(Math.random()-.5)*2*r)];
+// home: the spouse's, a child's parents', else the least crowded house of one's people nearby (any house if none)
+function homeOf(p){let h=p.home;const sp=p.mind&&p.mind.spouse!=null?byId.get(p.mind.spouse):null;
+ if(h&&!h.gone&&sp&&sp.home&&!sp.home.gone&&sp.home!==h&&p.mind.sex=='f'){ // newlyweds: a house of their own if one stands empty, else she moves in with him
+  let e=null;for(const o of houses)if(!o.gone&&!(o.n>0)&&dist(o.x,o.y,h.x,h.y)<10){e=o;break}
+  h.n=Math.max(0,(h.n||1)-1);if(e){sp.home.n=Math.max(0,(sp.home.n||1)-1);e.n=2;sp.home=e;sp.work=null}else sp.home.n=(sp.home.n||0)+1;p.work=null;return p.home=e||sp.home}
+ if(h&&!h.gone)return h;h=p.home=null;
+ if(sp&&sp.home&&!sp.home.gone)h=sp.home;
+ if(!h&&p.age<16){const c=civ.people[p.id];for(const id of c?c.par:[]){const q=byId.get(id);if(q&&q.home&&!q.home.gone){h=q.home;break}}}
+ if(!h){let bv=1e9;for(const o of(p.k&&p.k.houses&&p.k.houses.length?p.k.houses:houses)){const d=dist(o.x,o.y,p.x,p.y);if(d>60)continue;const v=(o.n||0)*3+d*.5;if(v<bv){bv=v;h=o}}}
+ if(h)h.n=(h.n||0)+1;return p.home=h}
+const WORK={farmer:[7],woodcutter:[4],miner:[5]};
+function findTile(x,y,types,R,seed){for(let r=0;r<=R;r+=.8){const n=Math.max(1,Math.round(r*5));for(let i=0;i<n;i++){const a=(i+seed%7/7)/n*6.283,X=wrapX(x+Math.cos(a)*r/sinT(y)),Y=clampY(y+Math.sin(a)*r);if(types.includes(at(X,Y)))return[X,Y]}}return null}
+// the place of work: fields (farmers break new ground near home if there are none), forest, hills, the square, the shrine, the wall
+function workOf(p){const job=p.cjob||'farmer',h=p.home||p,w=p.work;if(w&&w.job===job&&w.h===h&&(!w.t||w.t.includes(at(w.x,w.y))))return w;
+ const k=p.k,cx=k&&k.cx!=null?k.cx:h.x,cy=k&&k.cx!=null?k.cy:h.y;let pt=null;
+ if(WORK[job]){pt=findTile(h.x,h.y,WORK[job],job=='farmer'?6:10,p.id);
+  if(!pt&&job=='farmer'){const g=findTile(h.x+(Math.random()-.5)*4,h.y+(Math.random()-.5)*3,[3],5,p.id);if(g&&!houses.some(o=>dist(o.x,o.y,g[0],g[1])<1)){setT(tidx(g[0],g[1]),7);pt=g}}}
+ if(!pt){if(job=='soldier'){const a=(p.id*2.4)%6.283;pt=[wrapX(cx+Math.cos(a)*5/sinT(cy)),clampY(cy+Math.sin(a)*4)]}else if(job=='child'||job=='elder')pt=[h.x,h.y];
+  else if(job=='builder'){const o=k&&k.houses&&k.houses.length?k.houses[(Math.random()*k.houses.length)|0]:h;pt=[o.x,o.y]}else pt=[cx,cy]}
+ return p.work={x:pt[0],y:pt[1],job,h,t:WORK[job]&&WORK[job].includes(at(pt[0],pt[1]))?WORK[job]:null}}
+const DOING={farmer:['farm','Tending the rows.','Weeding. Always weeding.','The wheat is coming up well.'],woodcutter:['chop','Cutting wood.','This oak has stood a hundred years.','Timber!'],
+ miner:['mine','Down to the ore.','The hill gives up its stone.','Mind the props.'],smith:['smith','Hammering at the forge.','Hot iron waits for no one.'],glazier:['smith','Blowing glass.'],
+ builder:['build','Raising a wall.','Another roof before winter.'],trader:['trade','Haggling at the market.','Prices are up again.'],scholar:['study','Copying scrolls.','How do the stars move?'],
+ engineer:['smith','Mending the mill.','If this gear holds...'],soldier:['patrol','On watch.','All quiet on the border.'],priest:['pray','Leading the rite.','Tending the shrine.'],
+ programmer:['study','Writing code.'],coinminer:['study','Counting the ledger.'],child:['play','Playing tag!','Look, a frog!','Catch me!'],elder:['rest','Sitting in the sun.','In my day...']};
+function friendNear(p){const m=p.mind;if(!m)return null;let best=null,bv=.15;for(const k in m.relations){const r=m.relations[k],v=r.friend+r.love*.5;if(v>bv){const o=byId.get(+k);if(o&&!o.inside&&o.hp>0&&dist(o.x,o.y,p.x,p.y)<6){bv=v;best=o}}}return best}
+function daily(p,it){const part=dayPart(p.x,p.y),h=homeOf(p),c=p.mind?p.mind.traits:{},k=p.k,pick=a=>a[1+((Math.random()*(a.length-1))|0)];
+ // the visible day is a representative day of a life: at sunrise the mind's choice of the moment becomes the day's plan
+ if(p.plan==null||(p._part=='night'&&part!='night')){p.plan=it||'work';p.ptarget=p.itarget;p.lunch=p.supper=p.prayed=p.woke=0}
+ p._part=part;const plan=p.plan;
+ const go=(x,y,r,job,th)=>{[p.tx,p.ty]=jitter(x,y,r);p.job=job;if(th)p.thought=th};
+ const stay=(hrs,job,th)=>{p.tx=p.x;p.ty=p.y;p.restT=hrs*HR*(.6+Math.random()*.8);p.job=job;if(th)p.thought=th};
+ const by=(x,y,r)=>dist(p.x,p.y,x,y)<r,sq=k&&k.cx!=null;
+ if(part=='night'){ // home to sleep (indoors); the devout keep a short vigil first
+  if(h&&!by(h.x,h.y,.45)){go(h.x,h.y,.15,'home','Home to bed.');return}
+  if(plan=='pray'&&p.faith>.6&&!p.prayed){p.prayed=1;stay(.5,'pray','A prayer before sleep.');return}
+  const sp=p.mind&&p.mind.spouse!=null?byId.get(p.mind.spouse):null;p.inside=!!h;stay(1.5,'sleep',sp?`Asleep beside ${sp.name.split(' ')[0]}.`:'Asleep.');return}
+ if(part=='dawn'){
+  if(!p.woke){p.woke=1;stay(.4,'rest',pick(['','Another day.','My back aches already.','Bread first, then the day.']));return}
+  if(plan=='offer'&&!p.prayed){p.prayed=1;const g=mind.god(p);stay(.5,'offer',`An offering for ${g&&g!='the true god'?g:'the spirits'}.`);return}}
+ if(part=='evening'){ // supper at home; then the one they meant to see, a friend, or the square for the sociable; the doorstep for the rest
+  if(!p.supper){if(h&&!by(h.x,h.y,.6)){go(h.x,h.y,.25,'home','Home for supper.');return}p.supper=1;p.hunger=0;stay(.7,'eat','Supper with the family.');return}
+  const o=(plan=='socialize'||plan=='court'||plan=='marry')&&p.ptarget!=null?byId.get(p.ptarget):null;
+  if(o&&o.hp>0&&!o.inside&&dist(o.x,o.y,p.x,p.y)<12){const cj=plan=='socialize'?'socialize':'court';if(by(o.x,o.y,.6)){stay(.7,cj,`${cj=='court'?'Walking out with':'Talking with'} ${o.name.split(' ')[0]}.`);return}go(o.x,o.y,.3,'visit',`${cj=='court'?'To court':'Going to see'} ${o.name.split(' ')[0]}.`);return}
+  if((c.sociability??.5)>.45&&sq){const f=friendNear(p);
+   if(f&&Math.random()<.5){if(by(f.x,f.y,.6)){stay(.6,'socialize',`Talking with ${f.name.split(' ')[0]}.`);return}go(f.x,f.y,.3,'visit',`Going to see ${f.name.split(' ')[0]}.`);return}
+   if(by(k.cx,k.cy,1.6)){stay(.6,'socialize',pick(['','Stories by the fire.','Music in the square tonight.','Did you hear the news?']));return}go(k.cx,k.cy,1.2,'visit','To the square.');return}
+  if(h){if(by(h.x,h.y,.9)){stay(.8,'rest','Sitting by the door.');return}go(h.x,h.y,.5,'home');return}}
+ // the day
+ if(!h&&sq&&!by(k.cx,k.cy,6)){go(k.cx,k.cy,3,'commute','To town, to find a roof.');return} // the homeless make for town
+ if(plan=='rest'&&h){if(by(h.x,h.y,1.2)){Math.random()<.25?stay(1,'build','Mending the fence.'):stay(1.5,'rest',pick(['','A day of rest.','Nothing to do today, and that is fine.']));return}go(h.x,h.y,.7,'home');return}
+ if(plan=='pray'&&!p.prayed&&sq){if(by(k.cx,k.cy,1.2)){p.prayed=1;stay(1,'pray','At the shrine.');return}go(k.cx,k.cy,.8,'commute','To the shrine.');return}
+ if(plan=='preach'&&sq){if(by(k.cx,k.cy,1.6)){const g=mind.god(p);stay(1,'preach',`Listen! ${g&&g!='the true god'?g:'The god'} is the one we must follow.`);return}go(k.cx,k.cy,1,'commute','To the square, to preach.');return}
+ if(plan=='wander'||plan=='migrate'){go(p.x,p.y,6,'explore','I want to see what is over that hill.');return}
+ if(plan=='build'&&h){go(h.x,h.y,.9,'build','Mending the house.');p.restT=HR*1.5;return}
+ if(part=='afternoon'&&!p.lunch){p.lunch=1;p.hunger=Math.max(0,p.hunger-50);stay(.5,'eat',pick(['','Bread and cheese.','A bite of bread in the shade.']));return}
+ const w=workOf(p),d=DOING[w.job]||DOING.farmer;
+ if(!by(w.x,w.y,w.job=='soldier'?2.5:1.3)){go(w.x,w.y,.5,'commute',w.job=='child'?'':'Off to work.');return}
+ // at work: a bout of the trade at a spot about the work site
+ [p.tx,p.ty]=jitter(w.x,w.y,w.job=='soldier'?2.5:w.job=='child'?1.2:.9);p.job=d[0];p.thought=pick(d);p.restT=HR*(.4+Math.random()*.8);
+ if(w.job=='woodcutter'&&at(p.x,p.y)==4&&Math.random()<.01)setT(tidx(p.x,p.y),3)}
 function decide(p){ // on arrival; the mind module's intent (p.intent) steers the choice
- const k=p.k,it=p.intent;p.intent=null;
+ const k=p.k,it=p.intent;p.intent=null;p.inside=false;
  let foes=k?P.filter(o=>o.k&&k.war.has(o.k)&&dist(o.x,o.y,p.x,p.y)<8):[];
  if(it=='fight'){const o=byId.get(p.itarget);if(o&&dist(o.x,o.y,p.x,p.y)<10)foes=[o,...foes]}
  if(foes.length&&p.age>14&&(it=='fight'||p.kind<.85)&&it!='flee'){let f=foes[0];p.tx=f.x;p.ty=f.y;p.job='fight';p.thought=k&&f.k&&k.war.has(f.k)?`For ${k.name}!`:`${f.name.split(' ')[0]} wronged me.`;return}
  if(it=='flee'){p.tx=p.x+(Math.random()-.5)*12;p.ty=p.y+(Math.random()-.5)*8;p.job='flee';p.thought='I must get away from here.';return}
+ if(civ){daily(p,it);return}
  if(it=='offer'){const g=mind.god(p);p.job='offer';p.thought=`I leave an offering for ${g||'the spirits'}.`;p.tx=p.x;p.ty=p.y;p.restT=.12;if(k&&k.food>1)k.food-=1;J(p,`Made an offering to ${g||'the spirits'}.`);return}
  if(it=='preach'){const g=mind.god(p);p.job='preach';p.thought=`Listen! ${g?g[0].toUpperCase()+g.slice(1):'The god'} is the one we must follow.`;p.tx=p.x;p.ty=p.y;p.restT=.15;near(p.x,p.y,2).forEach(o=>{if(o!==p&&o.restT<=0&&o.job!='fight'){o.tx=p.x+(Math.random()-.5)*.8;o.ty=p.y+(Math.random()-.5)*.8}});return}
  if(p.hunger>50){if(k&&k.food>2){k.food-=2;p.hunger=0;p.thought='Ate from the stores.';p.job='eat'}else{let fx=p.x+(Math.random()-.5)*10,fy=p.y+(Math.random()-.5)*7;p.tx=fx;p.ty=fy;p.job='forage';const t=at(fx,fy);if(land(t)&&(t==4||t==7||Math.random()<.5)){p.hunger=Math.max(0,p.hunger-50);if(k)k.food+=1;p.thought='Found something to eat.'}}return}
@@ -267,21 +467,21 @@ function decide(p){ // on arrival; the mind module's intent (p.intent) steers th
 let mindAcc=0,burning=[],deathCauses={},births=0;
 function step(dt){yr+=dt*.05;simT+=dt;
  for(let i=0;i<1600;i++){let j=Math.random()*NT|0;const t=T[j];if(F[j]>0){F[j]-=.03;dirtyC=true;if(t==4||t==3||t==7){if(Math.random()<.3){const x=j%TW,y=(j/TW)|0,d=Math.random()*4|0;const n=d<2?y*TW+(x+(d?1:TW-1))%TW:Math.max(0,Math.min(TH-1,y+(d==2?1:-1)))*TW+x;if((T[n]==4||T[n]==3||T[n]==7)&&F[n]<=0)F[n]=1}}if(F[j]<=0&&t>1&&t!=6&&t!=9)setT(j,8)}else if(t==8&&Math.random()<.01)setT(j,3);else if(t==3&&Math.random()<.0005)setT(j,4)}
- const hl=houses.length;houses=houses.filter(h=>!(F[tidx(h.x,h.y)]>0)&&land(at(h.x,h.y)));if(houses.length!=hl)houseVer++;
+ const hl=houses.length;houses=houses.filter(h=>{const ok=!(F[tidx(h.x,h.y)]>0)&&land(at(h.x,h.y));if(!ok)h.gone=1;return ok});if(houses.length!=hl)houseVer++;
  for(const k of kings){k.houses=[];k.pop=0}for(const h of houses)h.k.houses.push(h);for(const p of P)if(p.k)p.k.pop++;
  for(const k of kings){const m=k.houses;if(m.length){let sx=0,sy=0;const r=m[0].x;for(const h of m){sx+=wdx(r,h.x);sy+=h.y}k.cx=wrapX(r+sx/m.length);k.cy=sy/m.length}else{const q=P.find(p=>p.k===k);if(q){k.cx=q.x;k.cy=q.y}}}
  if(HK.layer&&HK.layer.tick){try{HK.layer.tick(dt*.05,window.GB)}catch(e){console.warn('civ tick',e)}}
  if(civ){if(scale!='intimate')civTick(dt)}else{mindAcc+=dt;if(mindAcc>2){P.forEach(mind.sync);mind.tick(mindAcc*.05*12);mindAcc=0}}
- for(const p of P){if(!civ)p.age+=dt*.05;p.hunger+=dt*.04*(p.sick?2:1);if(p.sick){p.hp-=dt*.15;p.cause='plague';if(Math.random()<.02)near(p.x,p.y,1).forEach(o=>o.sick=1);if(Math.random()<.002)p.sick=0}
+ for(const p of P){if(!civ)p.age+=dt*.05;p.hunger+=dt*.04*(p.sick?2:1);if(p.sick){p.hp-=dt*.15*harm(null,p);p.cause='plague';if(Math.random()<.02)near(p.x,p.y,1).forEach(o=>o.sick=1);if(Math.random()<.002)p.sick=0}
   const tt=at(p.x,p.y);if(!land(tt)&&tt<2){p.hp-=dt*2;p.cause='drowned'}
   if(F[tidx(p.x,p.y)]>0){p.hp-=dt*3;p.cause='burned';p.thought='Fire! Run!';p.tx=p.x+(Math.random()-.5)*10;p.ty=p.y+(Math.random()-.5)*8;p.restT=0}
   if(p.hunger>100){if(!civ)p.hp-=dt*.3;p.cause='starvation';p.thought='So hungry...'}if(!civ&&p.age>60+p.str*25){p.hp=0;p.cause='old age'}
   if(p.restT>0)p.restT-=dt*.05;
   else if(dist(p.x,p.y,p.tx,p.ty)<.3){decide(p);if(!land(at(p.tx,p.ty))){p.tx=p.x;p.ty=p.y}}
   moveToward(p,dt);
-  const k=p.k;if(p.job=='fight')for(const o of P)if(o!==p&&(o.k&&k&&k.war.has(o.k)||o.id===p.itarget)&&dist(o.x,o.y,p.x,p.y)<.5){const war=o.k&&k&&k.war.has(o.k);if(!war&&o.hp<40){p.job='wander';p.thought=`${o.name.split(' ')[0]} has learned a lesson.`;continue}o.hp-=dt*p.str*2;o.cause=`killed by ${p.name} of ${k?k.name:'no kingdom'}`;o.killer=p;if(o.hp<=0&&!o.counted){o.counted=1;p.kills++;p.thought=`I killed ${o.name.split(' ')[0]}. God forgive me.`;J(p,`Killed ${o.name} in battle.`)}}}
+  const k=p.k;if(p.job=='fight')for(const o of P)if(o!==p&&(o.k&&k&&k.war.has(o.k)||o.id===p.itarget)&&dist(o.x,o.y,p.x,p.y)<.5){const war=o.k&&k&&k.war.has(o.k);if(!war&&o.hp<40){p.job='wander';p.thought=`${o.name.split(' ')[0]} has learned a lesson.`;continue}o.hp-=dt*p.str*2*harm(p,o);o.cause=`killed by ${p.name} of ${k?k.name:'no kingdom'}`;o.killer=p;if(o.hp<=0&&!o.counted){o.counted=1;p.kills++;p.thought=`I killed ${o.name.split(' ')[0]}. God forgive me.`;J(p,`Killed ${o.name} in battle.`)}}}
  let dead=P.filter(p=>p.hp<=0);if(dead.length>2)log(`${dead.length} died (${dead[0].cause||'unknown causes'}).`);else dead.forEach(p=>{if(p===sel||Math.random()<.3)log(`${p.name} died (${p.cause||'unknown causes'}).`)});
- dead.forEach(p=>{const c0=(p.cause||'unknown').replace(/ by .*/,'');deathCauses[c0]=(deathCauses[c0]||0)+1;J(p,`Died of ${p.cause||'unknown causes'}.`);p.died=yr;fallen.unshift(p);if(fallen.length>300)fallen.length=300;mind.kill(p,p.killer);byId.delete(p.id)});if(sel&&sel.hp<=0){sel.dead=1;if(follow){follow=false}}if(dead.length){P=P.filter(p=>p.hp>0);mind.gc()}
+ dead.forEach(p=>{if(p.home)p.home.n=Math.max(0,(p.home.n||1)-1);const c0=(p.cause||'unknown').replace(/ by .*/,'');deathCauses[c0]=(deathCauses[c0]||0)+1;J(p,`Died of ${p.cause||'unknown causes'}.`);p.died=yr;fallen.unshift(p);if(fallen.length>300)fallen.length=300;mind.kill(p,p.killer);byId.delete(p.id)});if(sel&&sel.hp<=0){sel.dead=1;if(follow){follow=false}}if(dead.length){P=P.filter(p=>p.hp>0);mind.gc()}
  kings.forEach(k=>{let n=k.pop;if(!k.dead&&n==0&&k.seen&&!P.some(p=>p.k===k)){k.dead=1;k.war.forEach(o=>o.war.delete(k));log(`<span style=color:${k.c}>${k.name}</span> has fallen.`)}if(n)k.seen=1;
   if(!civ&&Math.random()<.0008*dt&&n>8){let o=kings.find(b=>b!==k&&!b.dead&&!k.war.has(b)&&b.pop>0);if(o){k.war.add(o);o.war.add(k);log(`⚔ <span style=color:${k.c}>${k.name}</span> declares war on <span style=color:${o.c}>${o.name}</span>.`);mind.notify({type:'war',about:o.id},P.filter(p=>p.k===k))}}
   if(!civ&&Math.random()<.0006*dt)k.war.forEach(o=>{k.war.delete(o);o.war.delete(k);log(`🕊 <span style=color:${k.c}>${k.name}</span> and <span style=color:${o.c}>${o.name}</span> make peace.`);mind.notify({type:'peace'},P.filter(p=>p.k===k||p.k===o))})})}
@@ -328,10 +528,10 @@ function buildSettings(){const s=document.getElementById('set');const secs=[];if
  document.getElementById('tdef').onclick=()=>{if(mind.tuning)Object.assign(mind.tuning,D.m);if(V)Object.assign(V.TUNING,D.c);buildSettings()}}
 
 // ================= SAVE / LOAD =================
-function save(){const d={v:2,seed,yr,ages,nextId,nextK,simT,T:Array.from(T),E:Array.from(E),kings:kings.map(k=>({...k,war:[...k.war].map(o=>kings.indexOf(o)),houses:undefined})),houses:houses.map(h=>({...h,k:kings.indexOf(h.k)})),P:P.map(p=>({...p,k:p.k?kings.indexOf(p.k):-1,mind:undefined,killer:undefined})),chron,minds:mind.save(),civ:civ?V.serialize(civ):null,civTuning:V?{...V.TUNING}:null,tuning:mind.tuning?{...mind.tuning}:null,cam:{tx:cam.tx,ty:cam.ty,alt:cam.alt},soul:SST.soul||null,scale,powers:GPS&&GPS.civ===civ&&GPS.powers?GPS.powers:null};
+function save(){const d={v:2,seed,yr,ages,nextId,nextK,simT,T:Array.from(T),E:Array.from(E),kings:kings.map(k=>({...k,war:[...k.war].map(o=>kings.indexOf(o)),houses:undefined})),houses:houses.map(h=>({...h,k:kings.indexOf(h.k)})),P:P.map(p=>({...p,k:p.k?kings.indexOf(p.k):-1,mind:undefined,killer:undefined,home:p.home?houses.indexOf(p.home):-1,work:undefined})),chron,minds:mind.save(),civ:civ?V.serialize(civ):null,civTuning:V?{...V.TUNING}:null,tuning:mind.tuning?{...mind.tuning}:null,cam:{tx:cam.tx,ty:cam.ty,alt:cam.alt},soul:SST.soul||null,scale,powers:GPS&&GPS.civ===civ&&GPS.powers?GPS.powers:null};
  try{localStorage.setItem('godbox-earth',JSON.stringify(d));log('💾 World saved.')}catch(e){log('Save failed: '+e.message)}}
 function load(){const s=localStorage.getItem('godbox-earth');if(!s){log('No saved world.');return}const d=JSON.parse(s);seed=d.seed;yr=d.yr;ages=d.ages;nextId=d.nextId;nextK=d.nextK||99;simT=d.simT;T.set(d.T);E.set(d.E);F.fill(0);for(let i=0;i<NT;i++)tileH(i);
- kings=d.kings.map(k=>({...k,war:new Set(),houses:[]}));d.kings.forEach((k,i)=>k.war.forEach(j=>kings[i].war.add(kings[j])));houses=d.houses.map(h=>({...h,k:kings[h.k]}));P=d.P.map(p=>({...p,k:p.k>=0?kings[p.k]:null}));byId=new Map(P.map(p=>[p.id,p]));chron=d.chron||[];
+ kings=d.kings.map(k=>({...k,war:new Set(),houses:[]}));d.kings.forEach((k,i)=>k.war.forEach(j=>kings[i].war.add(kings[j])));houses=d.houses.map(h=>({...h,k:kings[h.k]}));P=d.P.map(p=>({...p,k:p.k>=0?kings[p.k]:null,home:p.home>=0?houses[p.home]||null:null}));byId=new Map(P.map(p=>[p.id,p]));chron=d.chron||[];
  if(d.minds)mind.load(d.minds,P);else{mind.reset();P.forEach(p=>mind.create(p))}if(d.civ&&V){civ=V.deserialize(d.civ);if(d.civTuning)Object.assign(V.TUNING,d.civTuning);for(const k in kingByNat)delete kingByNat[k];for(const k of kings)if(k.civId!=null)kingByNat[k.civId]=k;registerCivLayer()}else{civ=null;HK.layer=null}if(d.tuning&&mind.tuning)Object.assign(mind.tuning,d.tuning);if(d.cam)Object.assign(cam,d.cam);SST.soul=d.soul||null;if(d.scale)setScale(d.scale);if(soulP)soulP.clear();GPS=null;if(d.powers&&civ)gps().powers=d.powers;sel=null;dirtyH=dirtyC=true;houseVer++;log('📂 World loaded.');chronicle('You restored the world from memory.')}
 
 // ================= CAMERA =================
@@ -431,13 +631,17 @@ function rebuildHouses(){for(const k in houseMeshes)houseMeshes[k].count=0;for(c
   const dx=wdx(hs[i].x,b.x),dy=b.y-hs[i].y;for(let s=0;s<6;s++){surf(hs[i].x+dx*s/6,hs[i].y+dy*s/6,.5,a);roadP[n*3]=a.x;roadP[n*3+1]=a.y;roadP[n*3+2]=a.z;n++;surf(hs[i].x+dx*(s+1)/6,hs[i].y+dy*(s+1)/6,.5,a);roadP[n*3]=a.x;roadP[n*3+1]=a.y;roadP[n*3+2]=a.z;n++}}}
  roadG.attributes.position.needsUpdate=true;roadG.setDrawRange(0,n);builtHouseVer=houseVer}
 const labels=[];const lblDiv=document.getElementById('lbl');for(let i=0;i<30;i++){const d=document.createElement('div');lblDiv.appendChild(d);labels.push(d)}
-const AN=AS.ANIM;const JOBICON={pray:' 🙏',fight:' ⚔',offer:' 🕯',preach:' 📣',build:' 🔨',farm:' 🌾',harvest:' 🌾',chop:' 🪓',flee:' 💨',rest:' 💤'};
-function syncPeople(t){const show=cam.alt<350;crowd.visible=show;if(!show){crowd.count=0;labels.forEach(l=>l.style.display='none');return}
+const AN=AS.ANIM;const JOBICON={pray:' 🙏',fight:' ⚔',offer:' 🕯',preach:' 📣',build:' 🔨',farm:' 🌾',harvest:' 🌾',chop:' 🪓',flee:' 💨',rest:' 🪑',sleep:' 💤',mine:' ⛏',smith:' ⚒',trade:' ⚖',study:' 📜',patrol:' 🛡',eat:' 🍞',socialize:' 💬',court:' 💕',play:' 🎈'};
+const LABOUR=new Set(['chop','mine','smith','build','farm','harvest']); // work shows as the striking rig (hoe, axe, pick, hammer)
+const GAIT=.17; // walk-cycle seconds per world unit walked: legs keep pace with the ground (no skating)
+function syncPeople(t){const fdt=Math.min(.1,Math.max(0,t-(syncPeople.lt??t)));syncPeople.lt=t;const show=cam.alt<350;crowd.visible=show;if(!show){crowd.count=0;labels.forEach(l=>l.style.display='none');return}
  const p=new THREE.Vector3(),f=new THREE.Vector3(),q=new THREE.Vector3(),nn=new THREE.Vector3();let n=0;const cands=[];
- for(const o of P){if(n>=MAXP)break;surf(o.x,o.y,0,p);if(p.distanceTo(camera.position)>cam.alt*6+600)continue;const dx=wdx(o.x,o.tx),dy=o.ty-o.y;if(Math.abs(dx)+Math.abs(dy)>.02){surf(o.tx,o.ty,0,q);f.subVectors(q,p)}else fwdHeading(o.x,o.y,o.id,f);
-  const walking=o.moving&&!paused;const bob=walking?Math.abs(Math.sin(t*8+o.ph))*.25:0;p.addScaledVector(nn.copy(p).normalize(),bob);
-  const gn=HK.layer&&HK.layer.genes?genesOf(o):o.genes;const hgt=gn&&gn.height?Math.max(.7,Math.min(1.3,gn.height)):1,bld=gn&&gn.build?Math.max(.7,Math.min(1.4,gn.build)):1;const sc0=S_AS*(o.age<14?.55+o.age/40:1);orientAt(p,f,sc0);if(hgt!=1||bld!=1){_m.scale(new THREE.Vector3(bld,hgt,bld))}crowd.setMatrixAt(n,_m);const st=(o.job=='pray'||o.job=='offer')?AN.PRAY:o.job=='fight'?AN.FIGHT:walking?AN.WALK:AN.IDLE;
+ const ia=AS.real?crowd.geometry.attributes.iAnim:null;
+ for(const o of P){if(n>=MAXP)break;if(o.inside&&!o.moving){if(o===sel){surf(o.x,o.y,0,p);cands.push([0,o,p.clone()])}continue}surf(o.x,o.y,0,p);if(p.distanceTo(camera.position)>cam.alt*6+600)continue;const dx=wdx(o.x,o.tx),dy=o.ty-o.y;if(Math.abs(dx)+Math.abs(dy)>.02){surf(o.tx,o.ty,0,q);f.subVectors(q,p)}else fwdHeading(o.x,o.y,o.id,f);
+  const walking=o.moving&&!paused;const bob=walking&&!ia?Math.abs(Math.sin(t*8+o.ph))*.25:0;p.addScaledVector(nn.copy(p).normalize(),bob);
+  const gn=HK.layer&&HK.layer.genes?genesOf(o):o.genes;const hgt=gn&&gn.height?Math.max(.7,Math.min(1.3,gn.height)):1,bld=gn&&gn.build?Math.max(.7,Math.min(1.4,gn.build)):1;const sc0=S_AS*(o.age<14?.55+o.age/40:1);orientAt(p,f,sc0);if(hgt!=1||bld!=1){_m.scale(new THREE.Vector3(bld,hgt,bld))}crowd.setMatrixAt(n,_m);const st=walking?(o.job=='fight'?AN.FIGHT:AN.WALK):(o.job=='pray'||o.job=='offer')?AN.PRAY:(o.job=='fight'||LABOUR.has(o.job))?AN.FIGHT:AN.IDLE;
   const col=(gn&&gn.tint)||(o.k?o.k.c:'#bbbbbb'),skc=gn&&gn.skin||null;if(o._st!==st||o._c!==col||o._slot!==n||o._sk!==skc){AS.anim(crowd,n,st,o.ph,new THREE.Color(col).getHex(),skc?new THREE.Color(skc).getHex():null,gn&&gn.hair?new THREE.Color(gn.hair).getHex():null);o._st=st;o._c=col;o._slot=n;o._sk=skc}
+  if(ia&&walking){o.gph=(o.gph||0)+Math.min(dist(o._gx??o.x,o._gy??o.y,o.x,o.y)*TILE*GAIT,fdt*2.2);ia.setY(n,o.gph-t)}o._gx=o.x;o._gy=o.y;
   const d=p.distanceTo(camera.position);if(d<220)cands.push([d,o,p.clone()]);n++}
  crowd.count=n;crowd.instanceMatrix.needsUpdate=true;AS.flag(crowd);crowd.userData.upd(t);
  cands.sort((a,b)=>a[0]-b[0]);const v=new THREE.Vector3();
@@ -543,15 +747,27 @@ function personFromMind(m){const c=civ.people[m.id];const[x,y]=snapLand(m.x,c2tY
  p.life.push(c&&c.par.length?`Born to ${c.par.map(fullNm).join(' and ')}.`:'Came into the world.');P.push(p);byId.set(p.id,p);m.x=x;m.y=t2cY(y);return p}
 function civStart(){MW=MD.createWorldMinds((Math.random()*1e9)|0,{count:CIVN,width:TW,height:TH,groups:5,gods:3});civ=V.createCiv(MW,{nations:5,expRate:CIVRATE});civDays=0;
  for(const k in kingByNat)delete kingByNat[k];genWorldFromCiv(civ.map);for(const n of civ.nations)kingOf(n.id);for(const m of MW.minds)if(m.alive)personFromMind(m);
+ // the founding villages: each household starts under its own roof near its people's capital
+ const fams={};for(const p of P){const c=civ.people[p.id];if(c)(fams[c.fam]=fams[c.fam]||[]).push(p)}
+ for(const f in fams){const g=fams[f],n=civ.nations[civ.people[g[0].id].nat],c=capXY(n);let hx=c.x,hy=c.y;
+  for(let t=0;t<30;t++){[hx,hy]=jitter(c.x,c.y,2+t*.15);if(land(at(hx,hy))&&at(hx,hy)!=7&&!houses.some(h=>dist(h.x,h.y,hx,hy)<.8))break}
+  const h={x:hx,y:hy,k:kingOf(n.id),rot:Math.random()*6.28,seed:Math.random()*1e6|0,n:g.length};houses.push(h);
+  for(const p of g){p.home=h;[p.x,p.y]=snapLand(...jitter(hx,hy,.5));p.tx=p.x;p.ty=p.y;if(p.mind){p.mind.x=p.x;p.mind.y=t2cY(p.y)}}}
+ houseVer++;
  for(const e of civ.chron)log('🏛 '+esc(e.text));registerCivLayer()}
 function civKill(p){const m=p.mind;if(m)m.alive=false;const c=civ.people[p.id];if(c&&c.died==null){c.died=civ.year;c.cause=p.cause||'the hand of god';const n=civ.nations[c.nat];if(n&&n.leader&&n.leader.id===p.id){n.leader.bio.push(`Died in ${civ.year} (${c.cause}).`);n.pastLeaders=n.pastLeaders.concat([{...n.leader,until:civ.year}]).slice(-30);n.leader=null}}}
 function civPerson(x,y){let nid=V.nationAt(civ,x,t2cY(y));if(nid==null||nid<0||!civ.nations[nid].alive){let bd=1e9;for(const n of civ.nations){if(!n.alive)continue;const c=capXY(n),d=dist(x,y,c.x,c.y);if(d<bd){bd=d;nid=n.id}}}
  const n=civ.nations[nid];const m=MD.createMind({x,y:t2cY(y),age:18+(Math.random()*10|0),group:nid});MD.addMind(MW,m);m.name=CU.personName(n.lang,Math.random);
  civ.people[m.id]={id:m.id,name:m.name,sex:m.sex,born:civ.year-m.age,nat:nid,fam:0,par:[],kids:[],job:'farmer',w:20,coins:0,sk:.8,g:GN.randomGenome(Math.random,n.freqs),fed:1,fac:null,gen:1};
+ if(V.foundHouse)V.foundHouse(civ,m.id,'Its founder was shaped from the dust by the god.');
  const p=personFromMind(m);p.x=x;p.y=y;p.tx=x;p.ty=y;p.life=['Shaped from the dust by the god.'];return p}
-function civTick(dt,days){const one=days!=null;if(!one){civDays+=dt*.05*360;if(civDays<10)return}const chunk=one?1:Math.max(10,civDays/3);let calls=0,todo=one?days:0;
+// The civ runs once a frame on all the days that have piled up, in as many rounds of minds as the frame budget
+// allows (CIVB ms; civMs = measured cost of one round of everyone): a decision a day when there is time, coarser steps
+// when the game runs fast, and only every 2nd or 3rd person per frame (the minds' stride) when even one round is too dear.
+let civMs=3,civFrame=-1;const CIVB=5;
+function civTick(dt,days){const one=days!=null;if(!one){civDays+=dt*.05*360;if(civDays<1||civFrame===frameNo)return;civFrame=frameNo}let calls=0,todo=one?days:0;
  for(const p of P){const m=p.mind;if(m&&m.alive){m.x=p.x;m.y=t2cY(p.y)}}
- while(one?todo-->0:(civDays>=10&&calls<3)){const d=one?1:Math.min(chunk,civDays);if(!one)civDays-=d;calls++;let r;try{r=V.step(civ,MW,d);if(GP){try{powerEvents(GP.tickPowers(gps(),d))}catch(e){console.info('powers tick',e)}}if(S){try{S.tickSoul(SST,d)}catch(e){console.info('soul tick',e)}}}catch(e){console.error('civ step failed',e);civDays=0;break}
+ while(one?todo-->0:(civDays>=1&&calls<1)){const d=one?1:civDays;if(!one)civDays=0;calls++;const of=one?1:Math.min(3,Math.max(1,Math.ceil(civMs/CIVB))),ms=Math.min(30,Math.max(1,d/Math.max(1,Math.floor(CIVB*of/civMs)))),t0=performance.now();let r;try{r=V.step(civ,MW,d,{maxStep:ms,stride:MW.minds.length>1200?Math.max(3,of):of});civMs=civMs*.8+.2*Math.max(.2,(performance.now()-t0)/Math.ceil(d/ms)*of);if(GP){try{powerEvents(GP.tickPowers(gps(),d))}catch(e){console.info('powers tick',e)}}if(S){try{S.tickSoul(SST,d)}catch(e){console.info('soul tick',e)}}}catch(e){console.error('civ step failed',e);civDays=0;break}
   for(const a of r.actions||[]){const p=byId.get(a.id);if(p){p.intent=a.action;p.itarget=a.target}}
   let n=0;for(const e of r.events||[]){if(!e||!e.text)continue;histAll.unshift({y:yr|0,s:'🏛 '+esc(e.text),god:0});if(e.type!='feud'&&e.type!='economy'&&n++<3){logs.unshift(`<b>Year ${yr|0}</b> 🏛 ${esc(e.text)}`);logs.length=Math.min(logs.length,14)}}renderLog()}
  for(const p of P){const m=p.mind;if(!m)continue;const c=civ.people[p.id];if(!m.alive){if(p.hp>0){p.hp=0;p.cause=c&&c.cause||'unknown causes'}continue}p.age=m.age;
@@ -598,7 +814,7 @@ function registerCivLayer(){HK.layer=civLayer;civRefresh();houseVer++}
 const hud=document.getElementById('hud'),kd=document.getElementById('kd'),ins=document.getElementById('ins'),altD=document.getElementById('alt');
 function level(){return cam.alt>900?'Orbit':cam.alt>120?'Region':'Ground'}
 function fmtAlt(a){const km=a*6.371;return km>=1?km.toFixed(km<10?1:0)+' km':(km*1000|0)+' m'}
-let fps=60,frames=0,fpsT=0;
+let fps=60,frames=0,fpsT=0,frameNo=0;
 function faithGauge(){const G=mind.gods(),f=G.followers,tot=Math.max(1,P.length);const rows=[['the true god (you)','#ffd77a',f.true||0]];for(const id in G.byGod){const g=G.byGod[id];rows.push([`${g.name} <span style=opacity:.6>(${g.kind}${g.domain?', '+g.domain:''})</span>`,g.color||'#a8f',g.followers])}rows.push(['no god','#777',f.none||0]);
  return '<hr style="border-color:#333"><b>Faith</b><br>'+rows.map(([n,c,v])=>`<span class=bar style="width:${Math.max(1,v/tot*120)}px;background:${c}"></span> ${v} · ${n}`).join('<br>')}
 function drawHUD(){const alive=kings.filter(k=>!k.dead&&k.pop>0);
@@ -614,11 +830,11 @@ function drawHUD(){const alive=kings.filter(k=>!k.dead&&k.pop>0);
 
 // ================= LOOP =================
 let last=performance.now(),acc1=0,acc2=0,acc3=0,acc4=0,lastAltBand=-1;
-function loop(now){const rawdt=Math.max(0,(now-last)/1000),rdt=Math.min(.1,rawdt);last=now;frames++;fpsT+=rdt;if(fpsT>=.5){fps=frames/fpsT;frames=0;fpsT=0}
+function loop(now){const rawdt=Math.max(0,(now-last)/1000),rdt=Math.min(.1,rawdt);last=now;frames++;frameNo++;fpsT+=rdt;if(fpsT>=.5){fps=frames/fpsT;frames=0;fpsT=0}
  const dt=rdt*60;if(!paused){if(scale=='intimate'){// ~1 day every 3 s: the calendar steps day by day; people still walk, gently
   const n=S?Math.min(30,S.stepsFor('intimate',rawdt,soulAcc,1)):0,y0=yr;step(dt*.04);if(civ&&S){yr=y0+n/360;if(n)civTick(0,n)}}
  else{const m=scale=='fast'?Math.min(6,Math.max(3,speed*4)):speed;if(m<1)step(dt*m);else for(let k=0;k<m;k++)step(dt)}}
- if(sunLock)sunDir.copy(sunLock);else sunDir.set(Math.cos(simT*.004),.25,Math.sin(simT*.004)).normalize();sun.position.copy(sunDir).multiplyScalar(5000);sunMesh.position.copy(sunDir).multiplyScalar(3e5);sunGlow.position.copy(sunMesh.position);
+ if(sunLock){sunDir.copy(sunLock);sunNext.copy(sunLock)}else{sunDir.set(Math.cos(simT*.004),.25,Math.sin(simT*.004)).normalize();sunNext.set(Math.cos(simT*.004+.05),.25,Math.sin(simT*.004+.05)).normalize()}sun.position.copy(sunDir).multiplyScalar(5000);sunMesh.position.copy(sunDir).multiplyScalar(3e5);sunGlow.position.copy(sunMesh.position);
  updateCamera(rdt);
  acc1+=rdt;acc2+=rdt;acc3+=rdt;acc4+=rdt;
  if(acc1>.5){acc1=0;updateOwners();burning=[];for(let i=0;i<NT;i++)if(F[i]>0&&burning.length<3000){const x=i%TW,y=(i/TW)|0;if(dist(x,y,cam.tx,cam.ty)<40)burning.push(i)}}
@@ -631,7 +847,7 @@ function loop(now){const rawdt=Math.max(0,(now-last)/1000),rdt=Math.min(.1,rawdt
  cityM.uniforms.uA.value=Math.min(1,Math.max(0,(cam.alt-80)/300));
  syncPeople(now/1000);updateFX(rdt);
  const camUp=camera.position.clone().normalize(),day=Math.max(0,Math.min(1,camUp.dot(sunDir)*3+.3)),low=Math.max(0,Math.min(1,1-(cam.alt-60)/700));hemi.intensity=.25+.75*day*low;
- scene.background.setRGB(.38*day*low,.6*day*low,.95*day*low);scene.fog.color.copy(scene.background);if(low>0){scene.fog.near=cam.alt*4+150;scene.fog.far=cam.alt*14+900}else{scene.fog.near=1e6;scene.fog.far=2e6}
+ const skyC=updateWorldLook(rdt,low);scene.background.setRGB(0,0,0);scene.fog.color.copy(skyC).multiplyScalar(low);if(low>0){scene.fog.near=cam.alt*4+150;scene.fog.far=cam.alt*14+900}else{scene.fog.near=1e6;scene.fog.far=2e6}
  uiFrame(rdt);
  renderer.render(scene,camera);requestAnimationFrame(loop)}
 newWorld();rebuildHeights();rebuildColors();drawMini();drawHUD();requestAnimationFrame(loop);
@@ -826,5 +1042,5 @@ buildPalette();uiTop();
 if(GP)wirePowers();
 if(!localStorage.getItem('godbox-help-seen')&&!/[?&]nohelp/.test(location.search))showHelp(true);
 
-window.GB={registerPower,keyMap,setTool,powers:()=>Object.values(POW).filter(p=>!p.hidden).map(p=>({id:p.id,name:p.name,group:p.group,key:p.key,ext:!!p.ext,remapped:p.remapped})),clickAt:(sx,sy)=>{mouse.x=sx;mouse.y=sy;useTool(pickSurface(sx,sy),true)},toast,ask,showHelp,get tool(){return tool},_lines:()=>[tradeL,powerL].map(L=>{const A=L.geometry.attributes.position.array,n=L.geometry.drawRange.count;let mn=1e9,mx=0,bad=0;for(let i=0;i<n;i++){const r=Math.hypot(A[i*3],A[i*3+1],A[i*3+2]);if(!isFinite(r))bad++;else{mn=Math.min(mn,r);mx=Math.max(mx,r)}}return{n,mn,mx,bad}}),_drawTest:l=>drawLines(tradeL,l,1.2),registerLayer:l=>{HK.layer=l;civRefresh();houseVer++;log('A civilization layer awakens.')},HK,openCodex,get civ(){return civ},get MW(){return MW},TW,TH,tidx,at,dist,near,get histAll(){return histAll},get fallen(){return fallen},get P(){return P},get kings(){return kings},get houses(){return houses},get yr(){return yr},cam,camCfg:CAMCFG,openInspector,soul:SST,soulModule:S,setScale,get scale(){return scale},get sel(){return sel},setCamera:o=>{Object.assign(CAMCFG,o||{});cam.za=Math.max(CAMCFG.zMin,Math.min(CAMCFG.zMax,cam.za))},deselect,flyTo,act:(x,y,t)=>{const o=tool;tool=t;act(x,y,true);tool=o},setSpeed:s=>{speed=s},select:p=>{sel=p},toggleFollow,get fps(){return fps},level,mind,save,load,setSun:a=>{simT=a/.004},sunOver:(x,y,day)=>{sunLock=x==null?null:dirOf(x,y,new THREE.Vector3()).multiplyScalar(day?1:-1).add(new THREE.Vector3(0,.15,0)).normalize()},assets:AS.real,get deaths(){return deathCauses},get births(){return births},minds:mind.real};
+window.GB={registerPower,keyMap,setTool,powers:()=>Object.values(POW).filter(p=>!p.hidden).map(p=>({id:p.id,name:p.name,group:p.group,key:p.key,ext:!!p.ext,remapped:p.remapped})),clickAt:(sx,sy)=>{mouse.x=sx;mouse.y=sy;useTool(pickSurface(sx,sy),true)},toast,ask,showHelp,get tool(){return tool},_lines:()=>[tradeL,powerL].map(L=>{const A=L.geometry.attributes.position.array,n=L.geometry.drawRange.count;let mn=1e9,mx=0,bad=0;for(let i=0;i<n;i++){const r=Math.hypot(A[i*3],A[i*3+1],A[i*3+2]);if(!isFinite(r))bad++;else{mn=Math.min(mn,r);mx=Math.max(mx,r)}}return{n,mn,mx,bad}}),_drawTest:l=>drawLines(tradeL,l,1.2),registerLayer:l=>{HK.layer=l;civRefresh();houseVer++;log('A civilization layer awakens.')},HK,openCodex,get civ(){return civ},get MW(){return MW},TW,TH,tidx,at,dist,near,get histAll(){return histAll},get fallen(){return fallen},get P(){return P},get kings(){return kings},get houses(){return houses},get yr(){return yr},cam,camCfg:CAMCFG,openInspector,soul:SST,soulModule:S,setScale,get scale(){return scale},get sel(){return sel},setCamera:o=>{Object.assign(CAMCFG,o||{});cam.za=Math.max(CAMCFG.zMin,Math.min(CAMCFG.zMax,cam.za))},deselect,flyTo,act:(x,y,t)=>{const o=tool;tool=t;act(x,y,true);tool=o},setSpeed:s=>{speed=s},select:p=>{sel=p},toggleFollow,get fps(){return fps},weather:{storm:(x,y,life)=>stormHere(x,y,life),clear:()=>{storms.length=0},at:(x,y)=>stormAt(x,y),get storms(){return storms}},get civMs(){return civMs},level,mind,save,load,setSun:a=>{simT=a/.004},sunOver:(x,y,day)=>{sunLock=x==null?null:dirOf(x,y,new THREE.Vector3()).multiplyScalar(day?1:-1).add(new THREE.Vector3(0,.15,0)).normalize()},assets:AS.real,get deaths(){return deathCauses},get births(){return births},minds:mind.real};
 </script></body></html>

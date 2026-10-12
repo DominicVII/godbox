@@ -234,10 +234,9 @@ export function createCiv(world, opts = {}) {
     const mem = alive.filter((m) => civ.people[m.id].nat === n.id);
     n.bank = mem.length * 30; n.treasury = mem.length * 5; n.pop = mem.length;
     for (let i = 0; i < mem.length; i += 5) {
-      const grp = mem.slice(i, i + 5), f = makeFamily(civ, n, grp[0].id, 0);
+      const grp = mem.slice(i, i + 5).sort((x, y) => y.age - x.age), f = makeFamily(civ, n, grp[0].id, 0);
       for (const m of grp) { civ.people[m.id].fam = f.id; f.members++; f.living++; }
-      const a = grp.find((m) => m.sex === 'm' && m.age > 18 && m.spouse == null), b = grp.find((m) => m.sex === 'f' && m.age > 18 && m.spouse == null);
-      if (a && b) { a.spouse = b.id; b.spouse = a.id; }
+      foundHousehold(civ, grp);
     }
   }
   territory(civ, world);
@@ -262,6 +261,45 @@ function makeNation(civ, { tile, year, lang, cult, parent, gov, color, freqs }) 
   civ.nations.push(n);
   if (tile != null) { const m = civ.map, x0 = tile % m.gw, y0 = (tile / m.gw) | 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const x = x0 + dx, y = y0 + dy; if (x < 0 || y < 0 || x >= m.gw || y >= m.gh) continue; const t = y * m.gw + x; if (m.terr[t] && m.own[t] < 0) m.own[t] = id; } }
   return n;
+}
+// A founding household (oldest first): the eldest man and woman of an age are the couple, members young enough to be
+// their children are their children (genomes re-inherited so they resemble their parents), the rest are the couple's
+// brothers and sisters. Everyone in the house is bound as kin.
+function foundHousehold(civ, grp) {
+  const a = grp.find((m) => m.sex === 'm' && m.age > 18 && m.spouse == null), b = grp.find((m) => m.sex === 'f' && m.age > 18 && m.spouse == null && (!a || Math.abs(m.age - a.age) < 15));
+  if (a && b) { a.spouse = b.id; b.spouse = a.id; for (const [x, y] of [[a, b], [b, a]]) { const r = (x.relations[y.id] = x.relations[y.id] || { love: 0, friend: 0, grudge: 0, rival: 0 }); r.love = 0.75 + R(civ) * 0.25; r.friend = 0.5; } }
+  const kids = a && b ? grp.filter((m) => m !== a && m !== b && m.age <= Math.min(a.age, b.age) - 16) : [];
+  for (const k of kids) {
+    const pk = civ.people[k.id], pa = civ.people[a.id], pb = civ.people[b.id];
+    pk.par = [a.id, b.id]; pa.kids.push(k.id); pb.kids.push(k.id); pk.gen = 2; pk.g = Gn.inherit(pb.g, pa.g, rf(civ));
+    M.bindKin(k, a, 0.75, 0.4); M.bindKin(k, b, 0.75, 0.4);
+  }
+  for (let i = 0; i < kids.length; i++) for (let j = i + 1; j < kids.length; j++) M.bindKin(kids[i], kids[j], 0.45, 0.45);
+  for (const m of grp) if (m !== a && m !== b && !kids.includes(m)) for (const h of [a, b, grp[0]]) if (h && h !== m) { M.bindKin(m, h, 0.4, 0.4); break; }
+}
+function kin(civ, world, x, y) {
+  if (x.relations[y.id]?.kin) return true;
+  const a = civ.people[x.id], b = civ.people[y.id]; if (!a || !b) return false;
+  return a.par.includes(y.id) || b.par.includes(x.id) || a.par.some((i) => b.par.includes(i));
+}
+// A wedding: a love match, or one the families arrange (love may grow later). Both remember the day.
+function wed(civ, world, x, y, love) {
+  x.spouse = y.id; y.spouse = x.id;
+  for (const [p, q] of [[x, y], [y, x]]) {
+    const r = (p.relations[q.id] = p.relations[q.id] || { love: 0, friend: 0, grudge: 0, rival: 0 });
+    r.love = Math.max(r.love, love ? 0.8 : 0.3); r.friend = Math.max(r.friend, 0.25); r.grudge *= 0.3;
+    M.remember(p, 'married', love ? 1 : 0.6, world.t, q.id, love ? null : 'an arranged match');
+    p.needs.belonging = 0;
+    if (civ.people[p.id]) civ.people[p.id].wed = civ.year;
+  }
+}
+// The founder of a new house: a person the god shaped from the dust, or anyone who has none.
+export function foundHouse(civ, id, legend) {
+  const p = civ.people[id], n = p && civ.nations[p.nat]; if (!n) return null;
+  const old = civ.families[p.fam]; if (old) { old.members--; if (p.died == null) old.living--; }
+  const f = makeFamily(civ, n, id, civ.year); p.fam = f.id; f.members++; if (p.died == null) f.living++;
+  if (legend) f.legends.push(legend);
+  return f;
 }
 function makeFamily(civ, n, founder, year) {
   const f = { id: civ.nextFam++, name: (C.personName(n.lang, rf(civ)) + C.word(n.lang, 'kin', rf(civ)).slice(0, 2)).slice(0, 10), nat: n.id, founder, founded: year, members: 0, living: 0,
@@ -317,6 +355,7 @@ function log(civ, type, text, nations = [], tag) {
 // ---------- world state for minds ----------
 export function worldState(civ) {
   return {
+    cell: 8,   // neighbours are the people of your own town (sim units ~ tiles), not anyone in the province
     food: (m) => { const p = civ.people[m.id]; return p ? clamp(0.25 + 0.6 * p.fed) : 0.5; },
     danger: (m) => { const p = civ.people[m.id]; if (!p) return 0; const n = civ.nations[p.nat]; return n && n.atWar ? (p.job === 'soldier' ? 0.6 : 0.25) : 0; },
     shelter: (m) => { const p = civ.people[m.id]; return p ? clamp(civ.nations[p.nat]?.shelter ?? 0.5) : 0.5; },
@@ -327,7 +366,7 @@ export function step(civ, world, dt, opts = {}) {
   // big crowds: each frame updates a third (or half) of the minds with 3x (2x) dt (minds' optional stride hook) to keep frames short
   const of = opts.stride ?? (world.minds.length > 1200 ? 3 : world.minds.length > 600 ? 2 : 1);
   const k = (civ.sk = ((civ.sk || 0) + 1) % of);
-  const actions = M.tick(world, of > 1 ? { ...ws, stride: { k, of } } : ws, dt);
+  const actions = M.tick(world, of > 1 ? { ...ws, stride: { k, of } } : ws, dt, opts.maxStep);
   return { actions, events: tickCiv(civ, world, dt, actions) };
 }
 
@@ -677,18 +716,30 @@ function demography(civ, world, L) {
   for (const [p, m] of L) {
     m.age++;
     const g = Gn.phenotype(p.g), n = civ.nations[p.nat];
-    const ae = m.age - (g.longevity - 0.5) * 16 + (g.disease ? 15 : 0);
+    if (!civ.families[p.fam]) foundHouse(civ, p.id); // nobody is without a house (also mends older saves)
+    // m.lifeMod (years) and m.fert (x) come from god-given traits (godbox-soul.js); genes give the rest
+    const ae = m.age - (g.longevity - 0.5) * 16 - (m.lifeMod || 0) + (g.disease ? 15 : 0);
     const q = 0.003 + 0.3 * Math.exp((ae - 85) / 8) + (m.age < 5 ? 0.02 : 0) + (g.disease ? 0.02 : 0) + (p.fed < 0.4 ? 0.08 * (1 - p.fed) : 0);
     if (R(civ) < q) { kill(civ, world, p, m, m.age > 60 ? 'old age' : p.fed < 0.4 ? 'hunger' : g.disease ? 'wasting sickness' : 'illness'); continue; }
     chooseJob(civ, n, p, m, m.age === 15 || m.age === 69 || (p.job === 'child' && m.age >= 15));
     if (m.sex === 'f' && m.age >= 18 && m.age <= 44 && m.spouse != null) {
       const dad = world.byId.get(m.spouse), dp = dad && civ.people[dad.id];
-      if (dad && dad.alive && dp && R(civ) < TUNING.birth * cap * (0.4 + 0.6 * p.fed)) birth(civ, world, n, p, m, dp, dad);
+      if (dad && dad.alive && dp && R(civ) < TUNING.birth * cap * (0.4 + 0.6 * p.fed) * (m.fert ?? 1) * (dad.fert ?? 1)) birth(civ, world, n, p, m, dp, dad);
     }
   }
-  if (civ.year % 2 === 0) {   // matchmaking for adults the minds left single
+  if (civ.year % 2 === 0) {   // matchmaking for adults the minds left single: couples already in love first, then matches the families arrange
     const single = {}; for (const [p, m] of L) if (m.alive && m.spouse == null && m.age >= 18 && m.age < 45) (single[p.nat + m.sex] = single[p.nat + m.sex] || []).push(m);
-    for (const n of civ.nations) { const a = single[n.id + 'm'] || [], b = single[n.id + 'f'] || []; for (let i = 0; i < Math.min(a.length, b.length); i++) if (R(civ) < 0.35) { a[i].spouse = b[i].id; b[i].spouse = a[i].id; } }
+    for (const n of civ.nations) {
+      const a = single[n.id + 'm'] || [], b = single[n.id + 'f'] || [], pairs = [];
+      for (const x of a) for (const y of b) {
+        if (kin(civ, world, x, y)) continue;
+        const r1 = x.relations[y.id], r2 = y.relations[x.id];
+        const s = (r1 ? r1.love * 2 + r1.friend - r1.grudge * 2 : 0) + (r2 ? r2.love * 2 + r2.friend - r2.grudge * 2 : 0) - Math.hypot(x.x - y.x, x.y - y.y) * 0.02 - Math.abs(x.age - y.age) * 0.02;
+        pairs.push([s, x, y]);
+      }
+      pairs.sort((u, v) => v[0] - u[0]);
+      for (const [s, x, y] of pairs) if (x.spouse == null && y.spouse == null && R(civ) < (s > 0.6 ? 0.9 : s > -0.3 ? 0.3 : 0.08)) wed(civ, world, x, y, s > 0.6);
+    }
   }
 }
 function birth(civ, world, n, mp, mm, dp, dm) {
@@ -699,6 +750,10 @@ function birth(civ, world, n, mp, mm, dp, dm) {
   M.addMind(world, child);
   const fam = civ.families[dp.fam] || civ.families[mp.fam];
   const p = { id: child.id, name: child.name, sex: child.sex, born: civ.year, nat: n.id, fam: fam ? fam.id : 0, par: [dp.id, mp.id], kids: [], job: 'child', w: 0, coins: 0, sk: 0.5 + R(civ) * 0.4 + Gn.phenotype(g).intel * 0.3, g, fed: 1, fac: null, gen: 1 + Math.max(dp.gen || 1, mp.gen || 1) };
+  // the newborn is bound to mother, father and every brother and sister; the parents remember the day
+  for (const s of new Set([...mp.kids, ...dp.kids])) { const sm = world.byId.get(s); if (sm && sm.alive) M.bindKin(child, sm, 0.5, 0.4); }
+  M.bindKin(child, mm, 0.85, 0.4); M.bindKin(child, dm, 0.8, 0.4);
+  M.notify([mm, dm], { type: 'birth', about: child.id }, world);
   civ.people[child.id] = p; mp.kids.push(child.id); dp.kids.push(child.id);
   if (fam) {
     fam.members++; fam.living++; fam.gen = Math.max(fam.gen, p.gen - (civ.people[fam.founder]?.gen || 1) + 1);

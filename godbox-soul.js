@@ -139,6 +139,7 @@ export function giveTrait(state, id, traitId, opts = {}) {
     p.g = g.join('');
   }
   list.push(rec);
+  syncBody(state, id); // the gift takes hold at once: a fast walker walks faster from this step on
   if (!opts.silent) {
     const good = t.category !== 'curse';
     soulMem(state, m, good ? `touched by god: ${t.name}` : `cursed by god: ${t.name}`, good ? 0.8 : -0.8, t.description);
@@ -156,6 +157,7 @@ export function removeTrait(state, id, traitId, opts = {}) {
   const p = personOf(state, id);
   if (p && rec.sk) p.sk = clamp(p.sk - rec.sk, 0.1, 3);
   if (p && rec.genes) p.g = rec.genes; // restore the genome they were born with (children already born keep theirs)
+  syncBody(state, id);
   if (!opts.silent) {
     soulMem(state, m, t.category === 'curse' ? `freed by god from ${t.name}` : `god took away ${t.name}`, t.category === 'curse' ? 0.7 : -0.5, null);
     ensureSoul(state).log.push({ t: tnow(state), year: yearNow(state), id: m.id, kind: 'removeTrait', trait: traitId });
@@ -193,9 +195,24 @@ export function stats(state, id) {
   return s;
 }
 
+// The body a person's traits (innate and god-given) give them, as real modifiers the sim reads from mind.body:
+// life (years added to or taken from a natural life: godbox-civ demography), fert (x birth chance: demography),
+// speed / health / armor / damage (stat deltas: the earth page's walking, fighting and sickness).
+export function syncBody(state, id) {
+  const m = mindOf(state, id); if (!m) return null;
+  const ids = [...innateTraits(state, m, personOf(state, id)).map((x) => x.id), ...personTraits(state, id)];
+  const b = { life: 0, fert: 1, speed: 0, health: 0, armor: 0, damage: 0 };
+  for (const tid of ids) { const md = BYID[tid].mods; b.life += md.lifespan || 0; b.fert += md.fertility || 0; b.speed += md.speed || 0; b.health += md.health || 0; b.armor += md.armor || 0; b.damage += md.damage || 0; }
+  b.fert = Math.max(0, b.fert);
+  m.body = b; m.lifeMod = b.life; m.fert = b.fert;
+  return b;
+}
+
 // Daily hook: god-given traits keep acting (faith drift; infertility & bloodlust behaviours). Call after civ step.
 export function tickSoul(state, dt = 1) {
   const W = state.world; if (!W) return;
+  const S = ensureSoul(state), yr = yearNow(state);
+  if (S.bodyYear !== yr) { S.bodyYear = yr; for (const m of W.minds) if (m.alive) syncBody(state, m.id); } // bodies change with age and genes: once a year
   for (const m of W.minds) {
     if (!m.alive || !m.soulTraits || !m.soulTraits.length) continue;
     let fd = 0; for (const r of m.soulTraits) fd += BYID[r.id]?.faith || 0;
@@ -253,7 +270,7 @@ function thought(state, m) {
     const who = mem.about != null ? nameOfId(state, mem.about).split(' ')[0] : null;
     const tx = /grief/.test(mem.type) ? `I still see ${who || 'them'} in my dreams.` : /married/.test(mem.type) ? `${who || 'My love'} — the best day of my life.` :
       /prayer answered/.test(mem.type) ? 'The god answered me once. I have not forgotten.' : /unanswered/.test(mem.type) ? 'I begged and the sky said nothing.' :
-      /renamed/.test(mem.type) ? 'I still turn my head when someone calls my old name.' : /touched by god/.test(mem.type) ? `Since the god touched me I feel ${mem.type.split(': ')[1]?.toLowerCase() || 'changed'}.` :
+      /renamed/.test(mem.type) ? 'I still turn my head when someone calls my old name.' : /touched by god/.test(mem.type) ? (() => { const g = TRAITS.find((x) => x.name === mem.type.split(': ')[1]); return g ? `Since the god touched me... ${feels(m, g.id)}` : 'Since the god touched me I feel changed.'; })() :
       /cursed/.test(mem.type) ? 'Why did the god mark me? What did I do?' : /miracle/.test(mem.type) ? 'I saw the sky open. Nothing is the same.' :
       /heard the god|whisper/.test(mem.type) ? `The voice said: "${(mem.text || '').slice(0, 40)}"` : /attacked/.test(mem.type) ? `${who || 'They'} will pay for what they did.` : null;
     if (tx && parts.length < 2) parts.push(tx);
@@ -316,7 +333,7 @@ function relationships(state, m) {
   for (const k in m.relations || {}) {
     const r = m.relations[k], b = { id: +k, name: nameOfId(state, k), alive: aliveOf(state, k) };
     if (r.friend > 0.15) out.friends.push({ ...b, strength: r3(r.friend) });
-    if (r.love > 0.15) out.loves.push({ ...b, strength: r3(r.love) });
+    if (r.love > 0.15 && !r.kin) out.loves.push({ ...b, strength: r3(r.love) }); // kin are under Family
     if (r.rival > 0.15) out.rivals.push({ ...b, strength: r3(r.rival) });
     if (r.grudge > 0.15) out.grudges.push({ ...b, strength: r3(r.grudge) });
   }
@@ -330,7 +347,7 @@ function timeline(state, m, p) {
   const pr = pron(m);
   ev.push({ year: born, type: 'birth', text: `Born${p && p.par.length ? ' to ' + p.par.map((i) => nameOfId(state, i)).join(' and ') : ''}${p ? ' in ' + (civ.nations[p.nat]?.name || 'the wilds') : ''}.` });
   for (const k of p?.kids || []) { const c = personOf(state, k); if (c) { ev.push({ year: c.born, type: 'child', id: k, text: `A ${c.sex === 'f' ? 'daughter' : 'son'}, ${nameOfId(state, k)}, was born.` }); if (c.died != null) ev.push({ year: c.died, type: 'loss', id: k, text: `Lost ${pr.p} child ${nameOfId(state, k)} (${c.cause || 'unknown'}).`, feeling: 'grief' }); } }
-  if (m.spouse != null) { const sp = personOf(state, m.spouse); const mar = (m.memories || []).find((x) => x.type === 'married'); ev.push({ year: mar ? Math.floor(mar.t / YEAR) : Math.max(born + 18, (p?.kids?.length ? personOf(state, p.kids[0])?.born - 1 : born + 20)), type: 'marriage', id: m.spouse, text: `Married ${nameOfId(state, m.spouse)}.` }); if (sp && sp.died != null) ev.push({ year: sp.died, type: 'loss', id: m.spouse, text: `Widowed: ${nameOfId(state, m.spouse)} died (${sp.cause}).`, feeling: 'grief' }); }
+  if (m.spouse != null) { const sp = personOf(state, m.spouse); const mar = (m.memories || []).find((x) => x.type === 'married'); ev.push({ year: p?.wed ?? (mar ? Math.floor(mar.t / YEAR) : Math.max(born + 18, (p?.kids?.length ? personOf(state, p.kids[0])?.born - 1 : born + 20))), type: 'marriage', id: m.spouse, text: `Married ${nameOfId(state, m.spouse)}${mar?.text ? ' (' + mar.text + ')' : ''}.` }); if (sp && sp.died != null) ev.push({ year: sp.died, type: 'loss', id: m.spouse, text: `Widowed: ${nameOfId(state, m.spouse)} died (${sp.cause}).`, feeling: 'grief' }); }
   for (const pid of p?.par || []) { const q = personOf(state, pid); if (q && q.died != null && q.died >= born) ev.push({ year: q.died, type: 'loss', id: pid, text: `${q.sex === 'f' ? 'Mother' : 'Father'} ${nameOfId(state, pid)} died (${q.cause}).`, feeling: 'grief' }); }
   if (civ) {
     const end = died ?? civ.year, faith = m.faith;
@@ -443,9 +460,32 @@ export function listenTo(state, personId) {
   if (fam) s.push(m.mood > 0.5 ? `${fam} laughed today; I hold onto that.` : `I should be kinder to ${fam}.`);
   const kids = (p?.kids || []).filter((k) => aliveOf(state, k)); if (kids.length) s.push(`Little ${nameOfId(state, kids[kids.length - 1]).split(' ')[0]} must eat first.`);
   s.push({ prosper: 'One good year and we will be fine.', family: 'Family is all that lasts.', glory: 'One day they will sing my name.', knowledge: 'If only I could understand how it all fits.', peace: 'Let there be no more fighting.', faith: 'Let me be worthy.', land: 'A field of my own — that is all I ask.', revenge: 'I have not forgotten. I will not forget.' }[m.goal] || '');
-  if (m.soulTraits?.length) s.push(`Something the god put in me — ${m.soulTraits.map((r) => BYID[r.id].name.toLowerCase()).join(', ')} — stirs.`);
+  const gifts = m.soulTraits || [];
+  if (gifts.length) { // one or two of the god's marks surface in their own words, a different one from day to day
+    const day = Math.floor(state.world?.t || 0), first = hash(m.id, day) % gifts.length;
+    s.push(feels(m, gifts[first].id));
+    if (gifts.length > 3) s.push(feels(m, gifts[(first + 1 + (hash(m.id, day, 2) % (gifts.length - 1))) % gifts.length].id));
+    if (gifts.length >= 6) s.push(pickH(['So many gifts. Why me? Who am I to carry them?', 'The others look at me strangely now. As if I were not one of them.', 'Everything the god gives, someone envies.'], m.id, day));
+  }
   return s.filter(Boolean).join(' ');
 }
+// a trait as the person feels it, in the first person
+const FEEL = {
+  strong: 'My arms could lift an ox.', weak: 'Even the water pail tires me.', tough: 'Fevers pass me by.', sickly: 'This cough never leaves me.',
+  long_lived: 'I feel the years will be kind to me.', short_lived: 'Something tells me my candle burns fast.', fertile: 'I dream of a house full of children.',
+  infertile: (m) => `No child will ever call me ${m.sex === 'f' ? 'mother' : 'father'}.`, beautiful: 'People stare when I pass. I am not used to it yet.', ugly: 'Children whisper behind my back.',
+  fast: 'My feet carry me faster than anyone\'s.', slow: 'Everyone is always ahead of me on the road.', genius: 'My head is full of things no one has thought of yet.',
+  stupid: 'Why do they all laugh when I speak?', wise: 'I have learned to wait before I speak.', curious: 'I have to know how everything works.', incurious: 'The world is as it is.',
+  industrious: 'There is always more work, and I love it.', lazy: 'Tomorrow. It can wait until tomorrow.', paranoid: 'They are watching me. I know it.', trusting: 'Everyone means well, surely.',
+  madness: 'The stones were talking again last night.', zealous: 'My faith burns like a forge.', cynical: 'Gods are stories for children.', devoted: 'My heart turns to you, always.',
+  heretic: 'Is the sky-voice the only god? I wonder.', brave: 'Let trouble come. I will stand.', craven: 'If trouble comes, I will run.', content: 'I have enough. It is good.',
+  ambitious: 'One day they will bow to me.', kind: 'Who needs bread today?', cruel: 'The weak deserve what they get.', hot_headed: 'One more word and I will break his nose.',
+  calm: 'Still water. Nothing shakes me.', gregarious: 'I know everyone in town by name.', shy: 'I would rather talk to the goats.', honest: 'I cannot lie, not even a kind lie.',
+  deceitful: 'They believe whatever I tell them.', greedy: 'Every coin counts. Every one.', generous: 'Take it. I have enough.', blessed: 'Light follows me. I feel the god\'s hand on me.',
+  cursed: 'Milk sours when I pass. What did I do?', blessed_health: 'The years slide off me like rain.', prophet: 'The god speaks, and I must tell them.', veteran: 'I have seen too many battles.',
+  bloodlust: 'My hands itch for a blade.', evil: 'Something dark in me smiles.', voices: 'Who is talking? There is no one here.',
+};
+function feels(m, id) { const f = FEEL[id]; return typeof f === 'function' ? f(m) : f || `I feel ${BYID[id]?.name.toLowerCase() || id}.`; }
 
 // ---------- whisper ----------
 export function whisper(state, personId, text = '') {

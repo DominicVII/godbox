@@ -10,6 +10,16 @@ A 3D god-game on a procedural globe (three.js). You are the people's one true go
 - Space pauses, - and = change speed, [ and ] change the brush size, / opens the Codex, ? opens help, Esc closes things.
 - To move a panel, drag its title bar. ▾ folds it and double-clicking the title resets its place.
 
+## How they live
+- **A day, a home, a trade.** Everyone has a house (their parents' or their spouse's; newlyweds take an empty one) and a place of work by trade: fields, forest, hills, the market square, the shrine, the wall. The visible day follows the sun where they live. At dawn they wake, by day they work (with a bite at noon), and in the evening they have supper at home and then gather at the fire in the square or visit a friend. At night they sleep indoors. What their mind chose for the day (a day of rest, a visit to the shrine, a sermon, courting someone) shapes that day.
+- **Families and bonds.** Founding peoples start as households: a couple, their children and their kin, under one roof. Children are bound to their parents and siblings, and families grieve their dead. Friendships grow from evenings together and from working side by side, they favour people of a like temper, and they fade without contact. Hot tempers and bad fits quarrel into grudges. Couples in love marry first, and families arrange matches for the rest. A shared life keeps a marriage warm, kinder hearts more so. A person the god shapes from the dust founds a house of their own.
+- **Traits are real.** Innate and god-given traits change the body the sim uses: a Fast walker walks faster, Tough and Unaging people take blows and plague better, Long-lived people live longer, and Infertile people have no children. People speak of their gifts in their own words, and carrying too many weighs on them.
+- **The world.** Near the ground there is a sky (blue by day, red at either end of it, stars at night), a sun that warms and dims as it sets, a moon, shadows, clouds with drifting storm cells that bring rain (snow in the cold), and grass and wild flowers underfoot. Rain from the god gathers a storm.
+- **Any speed.** A person decides about once a day. When the game runs fast the page steps coarser, or updates only part of the crowd each frame, within a frame budget. A decision then stands for the days it covers, so a life keeps the same shape at any speed.
+
+## Weather: `GB.weather`
+`GB.weather.storm(x, y, life?)` gathers a storm cell over tile x, y (`life` in sun-clock units, default 900). `GB.weather.clear()` clears the skies. `GB.weather.at(x, y)` reads the storm strength there (0..1).
+
 ## Plug-in powers: `GB.registerPower(def)`
 ```js
 GB.registerPower({

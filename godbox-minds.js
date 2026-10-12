@@ -8,7 +8,8 @@
  *   createMind(opts)                 -> mind   opts: {id,name,x,y,age,sex,traits,faith,seed,group}
  *   createWorldMinds(seed, opts)     -> world  {seed,t,minds[],byId:Map,rng}  opts:{count=0,width,height,groups}
  *   addMind(world, mind)
- *   tick(world, worldState, dt)      -> actions[]  [{id, action, target, x, y}]  (only minds that decided)
+ *   tick(world, worldState, dt, maxStep=1) -> actions[]  [{id, action, target, x, y}]  (only minds that decided)
+ *                                    dt is split into steps of at most maxStep days (one decision per mind per step)
  *   notify(target, event, world?)    target = mind | mind[] | world | 'all' (then pass world)
  *       event: {type, x?, y?, radius?, intensity?, text?, about?(id), cruel?}
  *       types: bless, heal, feed, rain, miracle, plague, flood, famine, lightning, fire, quake,
@@ -104,7 +105,7 @@ const NAMES_B = ['a', 'en', 'ric', 'wyn', 'ia', 'o', 'is', 'eth', 'an', 'ra', 'm
 const TRAITS = ['piety', 'courage', 'sociability', 'ambition', 'kindness', 'stubbornness', 'curiosity', 'temper', 'diligence'];
 const GOALS = ['prosper', 'family', 'glory', 'knowledge', 'peace', 'faith', 'land', 'revenge'];
 const FEARS = ['hunger', 'death', 'the god', 'loneliness', 'strangers', 'water', 'fire', 'sickness'];
-const MAX_MEM = 12, MAX_REL = 16;
+const MAX_MEM = 12, MAX_REL = 12, CAP_NB = 12;
 
 let _anonRng = mulberry32(12345);
 
@@ -131,6 +132,8 @@ export function createMind(opts = {}) {
     mood: 0.5, history: [], faithLog: [faith], seed: (rng() * 4294967296) >>> 0,
     devotion: { ...(opts.devotion || {}) }, allegiance: opts.allegiance !== undefined ? opts.allegiance : (faith > 0.25 ? 'true' : null),
     wrath: 0, offering: null, preached: 0, priest: false,
+    relT: null,                                   // last time bonds were aged (weekly pass)
+    body: null, lifeMod: 0, fert: 1,              // what traits do to the body (set by godbox-soul syncBody)
   };
 }
 
@@ -233,7 +236,7 @@ export function addMind(world, m) {
   world.minds.push(m); world.byId.set(m.id, m); return m;
 }
 
-function remember(m, type, weight, t, about, text) {
+export function remember(m, type, weight, t, about, text) {
   const mem = m.memories;
   if (mem.length >= MAX_MEM) {
     let lo = 0; for (let i = 1; i < mem.length; i++) if (Math.abs(mem[i].weight) < Math.abs(mem[lo].weight)) lo = i;
@@ -243,19 +246,44 @@ function remember(m, type, weight, t, about, text) {
   mem.push({ type, weight, t, about: about ?? null, text: text || null });
   if (Math.abs(weight) > 0.5) { m.history.push(`${type}@${t.toFixed(0)}`); if (m.history.length > 20) m.history.shift(); }
 }
-function rel(m, id) {
+function rel(m, id, soft) {
   let r = m.relations[id];
   if (!r) {
     const keys = Object.keys(m.relations);
-    if (keys.length >= MAX_REL) { // forget weakest
-      let wk = keys[0], ws = 9;
-      for (const k of keys) { const q = m.relations[k], s = q.love + q.friend + q.grudge + q.rival; if (s < ws) { ws = s; wk = k; } }
-      if (+wk === m.spouse) return { love: 0, friend: 0, grudge: 0, rival: 0 };
+    if (keys.length >= MAX_REL) { // forget the weakest acquaintance (never a spouse or kin); a passing contact (soft) forgets no one
+      if (soft) return null;
+      let wk = null, ws = 9;
+      for (const k of keys) { const q = m.relations[k], s = q.love + q.friend + q.grudge + q.rival; if (!q.kin && +k !== m.spouse && s < ws) { ws = s; wk = k; } }
+      if (wk == null) return { love: 0, friend: 0, grudge: 0, rival: 0 };
       delete m.relations[wk];
     }
     r = m.relations[id] = { love: 0, friend: 0, grudge: 0, rival: 0 };
   }
   return r;
+}
+// whom to spend the evening with: the friends and kin one already has, people of a like temper, now and then a new face
+const _cw = [], _co = [];
+function company(m, nb, rng, world, reach) {
+  _co.length = 0; _cw.length = 0;
+  for (let j = 0, L = Math.min(nb.length, CAP_NB); j < L; j++) _co.push(nb[j]);
+  if (world) for (const k in m.relations) { // one goes to see one's friends and kin, wherever in town they are
+    const r = m.relations[k]; if (r.friend + r.love < 0.2) continue;
+    const o = world.byId.get(+k); if (o && o.alive && !_co.includes(o) && Math.abs(o.x - m.x) < reach && Math.abs(o.y - m.y) < reach) _co.push(o);
+  }
+  let tot = 0;
+  for (const o of _co) {
+    const r = m.relations[o.id];
+    const v = o.alive ? Math.max(0, 0.12 + (r ? r.friend * 2 + r.love - r.grudge * 2 : 0) + 0.15 * (1 - Math.abs(m.traits.sociability - o.traits.sociability))) : 0;
+    _cw.push(v); tot += v;
+  }
+  if (tot <= 0) return null;
+  let x = rng() * tot; for (let j = 0; j < _co.length; j++) { x -= _cw[j]; if (x <= 0) return _co[j]; }
+  return _co[_co.length - 1];
+}
+// kin bonds: family love that never fades below a floor, and kin are never courted
+export function bindKin(a, b, love = 0.6, friend = 0.3) {
+  if (!a || !b || a === b) return;
+  for (const [x, y] of [[a, b], [b, a]]) { const r = rel(x, y.id); r.kin = 1; r.love = Math.max(r.love, love); r.friend = Math.max(r.friend, friend); }
 }
 function faithChange(m, d, t) {
   // steadfast believers resist loss; apostates resist gain
@@ -377,24 +405,42 @@ function buildGrid(minds, cell) {
   return g;
 }
 const _nb = [];
-function gridNearby(g, cell, m, cap) {
+function gridNearby(g, cell, m, cap, rng) {
   _nb.length = 0;
   const cx = (m.x / cell) | 0, cy = (m.y / cell) | 0;
   for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
     const a = g.get((cx + dx) * 73856093 ^ (cy + dy) * 19349663);
-    if (a) for (let i = 0; i < a.length && _nb.length < cap; i++) if (a[i] !== m) _nb.push(a[i]);
+    if (!a) continue;
+    const L = a.length, s = rng ? (rng() * L) | 0 : 0;
+    for (let i = 0; i < L && _nb.length < cap * 2; i++) { const o = a[(s + i) % L]; if (o !== m) _nb.push(o); }
   }
+  // a fair sample of everyone in reach, not always the same few at the front of the list
+  if (rng && _nb.length > cap) for (let i = 0; i < cap; i++) { const j = i + ((rng() * (_nb.length - i)) | 0), o = _nb[i]; _nb[i] = _nb[j]; _nb[j] = o; }
+  if (_nb.length > cap) _nb.length = cap;
   return _nb;
 }
 
 // ---------- tick ----------
 const U = new Float64Array(ACTIONS.length), _soc = new Map();
-export function tick(world, ws = {}, dt = 0.1) {
+// A mind decides about once a day: longer steps are split so needs, choices and bonds keep that rhythm.
+// maxStep (days) lets a busy host allow coarser steps; a decision then stands for that many days (span, below).
+const MAX_STEP = 1;
+export function tick(world, ws = {}, dt = 0.1, maxStep = MAX_STEP) {
+  if (!(maxStep >= MAX_STEP)) maxStep = MAX_STEP;
+  if (dt > maxStep) {
+    const k = Math.ceil(dt / maxStep), out = [];
+    for (let i = 0; i < k; i++) for (const a of tick(world, ws, dt / k, maxStep)) out.push(a);
+    return out;
+  }
   world.t += dt;
   // optional hook (ws.stride = {k, of}): update only every of-th mind, starting at k, with dt*of —
   // spreads a big crowd over several frames. Absent = original behaviour.
   const S0 = ws.stride && ws.stride.of > 1 ? ws.stride : null, i0 = S0 ? S0.k % S0.of : 0, di = S0 ? S0.of : 1;
   if (S0) dt *= S0.of;
+  // Coarse steps (a busy host, crowd strides) keep a life's shape: needs run in decision time (one decision = one day
+  // of drift and relief, ndt), while bonds, which fade in calendar time, gain per decision in proportion to the days
+  // it stands for (span).
+  const span = Math.max(1, dt), ndt = dt / span;
   const t = ws.time ?? world.t, out = [], CELL = ws.cell || 40, CAP = 12;
   const grid = ws.nearby ? null : buildGrid(world.minds, CELL);
   const rng = world.rng, hasGods = !!(world.gods && world.gods.length);
@@ -403,12 +449,13 @@ export function tick(world, ws = {}, dt = 0.1) {
     if (!m.alive) continue;
     const n = m.needs, T = m.traits;
     const food = ws.food ? ws.food(m) : 0.5, danger = ws.danger ? ws.danger(m) : 0, shelter = ws.shelter ? ws.shelter(m) : 0.5;
-    // needs drift
-    n.hunger = clamp(n.hunger + dt * (0.18 - food * 0.1));
-    n.rest = clamp(n.rest + dt * 0.1);
-    n.safety = clamp(n.safety + dt * (danger * 0.5 - 0.15 * shelter));
-    n.belonging = clamp(n.belonging + dt * 0.04);
-    n.meaning = clamp(n.meaning + dt * 0.03 * (0.5 + T.ambition));
+    // needs drift. Households eat every day from what the land gives (food), so hunger follows the food supply:
+    // a well-fed town stays fed, a short one grows hungry within days, a starving one within a week
+    n.hunger = clamp(n.hunger + ndt * (0.2 - food * 0.24));
+    n.rest = clamp(n.rest + ndt * 0.04);
+    n.safety = clamp(n.safety + ndt * (danger * 0.5 - 0.15 * shelter));
+    n.belonging = clamp(n.belonging + ndt * 0.06);
+    n.meaning = clamp(n.meaning + ndt * 0.03 * (0.5 + T.ambition));
     // memory decay (half-life ~ 20 days, strong memories slower)
     for (let j = m.memories.length - 1; j >= 0; j--) {
       const me = m.memories[j]; me.weight *= Math.exp(-dt / (12 + 30 * Math.abs(me.weight)));
@@ -423,10 +470,10 @@ export function tick(world, ws = {}, dt = 0.1) {
       if (n[o.need] < 0.3) { addDev(m, o.god, TUNING.offerReward); remember(m, 'favored by ' + o.god, 0.6, t); m.offering = null; }
       else if (t - o.t > 3) { addDev(m, o.god, -0.05 * (1 - 0.5 * T.stubbornness)); faithChange(m, 0.01, t); remember(m, 'idol failed', -0.4, t); m.offering = null; }
     }
-    // unanswered prayer -> silence
-    if (m.prayer && t - m.prayer.t > 3) {
-      m.silence += 1; remember(m, 'unanswered prayer', -0.4, t);
-      faithChange(m, -0.04 * (1 - 0.5 * T.piety), t); m.prayer = null;
+    // unanswered prayer -> silence (weighted by the days a prayer stands for, like every faith rate below)
+    if (m.prayer && t - m.prayer.t > Math.max(3, span * 1.5)) {
+      m.silence += span; remember(m, 'unanswered prayer', -0.4, t);
+      faithChange(m, -0.04 * (1 - 0.5 * T.piety) * span, t); m.prayer = null;
     }
     // need relieved "naturally" after praying counts weakly as answered
     if (m.prayer && n[m.prayer.need] < 0.3) { faithChange(m, 0.03, t); remember(m, 'prayer answered', 0.5, t); m.grace = clamp((m.grace || 0) + TUNING.graceNatural, 0, 3); m.prayer = null; m.lastAnswered = t; }
@@ -436,19 +483,37 @@ export function tick(world, ws = {}, dt = 0.1) {
     if (m.cooldown > 0) continue;
     m.cooldown = 0.5 + rng();
 
-    const nb = ws.nearby ? ws.nearby(m, CELL) : gridNearby(grid, CELL, m, CAP);
+    // bonds fade without contact (friendships in months, grudges slower, kin never fully); faded acquaintances are
+    // forgotten. Applied about weekly, compounded over the days since the last pass.
+    const el = t - (m.relT ?? t);
+    if (m.relT == null || el >= 7) {
+      m.relT = t;
+      if (el > 0) {
+        const fF = 0.997 ** el, fG = 0.997 ** el, fR = 0.996 ** el, fL = 0.997 ** el, fK = 0.999 ** el, fS = 0.999 ** el;
+        for (const k in m.relations) {
+          const r = m.relations[k], sp = +k === m.spouse;
+          r.friend *= fF; r.grudge *= fG; r.rival *= fR;
+          r.love = r.kin ? Math.max(r.love * fK, 0.3) : r.love * (sp ? fS : fL);
+          if (!r.kin && !sp && r.love + r.friend + r.grudge + r.rival < 0.02) delete m.relations[k];
+        }
+      }
+    }
+    if (m.spouse != null) {
+      const sp = world.byId.get(m.spouse), r = m.relations[m.spouse];
+      if (sp && sp.alive && r && Math.abs(sp.x - m.x) < CELL && Math.abs(sp.y - m.y) < CELL) r.love = clamp(r.love + 0.0007 * (0.1 + T.kindness + sp.traits.kindness) * span);
+    }
+    const nb = ws.nearby ? ws.nearby(m, CELL) : gridNearby(grid, CELL, m, CAP, rng);
     let bestMate = null, bestMateS = 0.15, foe = null, foeS = 0.35, friendS = 0;
     let socTrue = 0, socW = 0, socG = null, socGV = 0; const soc = hasGods ? _soc : null; if (soc) soc.clear();
     for (let j = 0, L = Math.min(nb.length, CAP); j < L; j++) {
       const o = nb[j]; if (!o.alive) continue;
       const r = m.relations[o.id];
       if (r) {
-        r.love *= 0.995; r.friend *= 0.998; r.grudge *= 0.99; r.rival *= 0.995;
         friendS += r.friend + r.love;
         const fs = r.grudge + r.rival * 0.5 + (m.enemyGroup != null && o.group === m.enemyGroup ? 0.4 : 0);
         if (fs > foeS) { foeS = fs; foe = o; }
       } else if (m.enemyGroup != null && o.group === m.enemyGroup && 0.4 > foeS) { foeS = 0.4; foe = o; }
-      if (o.sex !== m.sex && !m.spouse && !o.spouse && m.age > 16 && o.age > 16 && Math.abs(m.age - o.age) < 15) {
+      if (o.sex !== m.sex && !m.spouse && !o.spouse && !(r && r.kin) && m.age > 16 && o.age > 16 && Math.abs(m.age - o.age) < 15) {
         const s = (r ? r.love : 0) + 0.2 * (1 - Math.abs(T.kindness - o.traits.kindness)) + rng() * 0.1;
         if (s > bestMateS) { bestMateS = s; bestMate = o; }
       }
@@ -469,7 +534,7 @@ export function tick(world, ws = {}, dt = 0.1) {
       const silenceF = Math.min(1.5, m.silence / TUNING.silenceRamp), distress = Math.max(n.hunger, n.safety);
       const answered = m.lastAnswered > 0 && t - m.lastAnswered < P.answeredDays ? 1 : 0;
       // personal resolve: an emergent, individual choice to keep faith through silence (never guaranteed)
-      if (m.grace) m.grace = Math.max(0, m.grace - P.graceDecay);
+      if (m.grace) m.grace = Math.max(0, m.grace - P.graceDecay * span);
       let tragedy = 0; for (const me of m.memories) if (me.weight < -0.5 && (me.type === 'grief' || me.type === 'attacked' || me.type === 'prayer met with wrath' || EVENTS[me.type]?.cruel)) tragedy -= me.weight;
       const kin = m.spouse != null ? (world.byId.get(m.spouse)?.allegiance === 'true' ? 1 : 0) : 0;
       const resolve = (m.grace > P.graceMin ? T.piety * T.stubbornness * P.resolveTraits + Math.min(1, m.grace) * P.resolveGrace + kin * P.resolveKin
@@ -479,9 +544,9 @@ export function tick(world, ws = {}, dt = 0.1) {
       const push = (P.drift * (silenceF * shield + (m.wrath || 0) + distress * distress * 0.8 * shield) + (fearDir < 0 ? -fearDir * m.fearOfGod * P.fearDrift : 0)) * (1 - 0.5 * T.piety) * (1 - 0.8 * answered);
       const pull = P.socialTrue * sT + (fearDir > 0 ? fearDir * m.fearOfGod * P.fearPull : 0) + P.answeredPull * answered;
       const toRival = push + P.social * sG * shield;
-      if (cand) addDev(m, cand, toRival - pull * 0.5 - P.devotionDecay);
-      for (const k in m.devotion) if (k !== cand) addDev(m, k, -P.devotionDecay * 1.5);
-      faithChange(m, pull * 0.6 - toRival * P.faithErosion, t);
+      if (cand) addDev(m, cand, (toRival - pull * 0.5 - P.devotionDecay) * span);
+      for (const k in m.devotion) if (k !== cand) addDev(m, k, -P.devotionDecay * 1.5 * span);
+      faithChange(m, (pull * 0.6 - toRival * P.faithErosion) * span, t);
       updateAllegiance(m, world, t);
     }
     const lonely = nb.length < 2;
@@ -501,7 +566,7 @@ export function tick(world, ws = {}, dt = 0.1) {
     U[10] = (n.hunger > 0.7 && food < 0.3 ? 0.6 : 0) + (n.safety > 0.7 ? 0.4 : 0) + T.curiosity * 0.1 + (m.mood < 0.2 ? 0.2 : 0); // migrate
     U[11] = nb.length > 10 && T.ambition > 0.7 && m.age > 20 ? T.ambition * 0.6 + n.meaning * 0.3 : 0; // found
     U[12] = n.rest * n.rest * 1.5;                                                         // rest
-    U[13] = n.belonging * 0.5 * T.sociability + (lonely ? 0 : 0.1);                        // socialize
+    U[13] = lonely ? n.belonging * 0.2 * T.sociability : n.belonging * (0.35 + 0.55 * T.sociability) + 0.1; // socialize
     const rival = hasGods && m.allegiance && m.allegiance !== 'true' ? m.allegiance : null, rdv = rival ? m.devotion[rival] || 0 : 0;
     if (rival) U[9] *= 0.3;
     U[14] = rival && !m.offering ? rdv * (0.25 + urgency * 1.2) * (0.5 + T.piety) : 0;      // offer
@@ -510,20 +575,32 @@ export function tick(world, ws = {}, dt = 0.1) {
     let best = 0, bv = -1e9;
     for (let a = 0; a < U.length; a++) { const v = U[a] + noise(); if (v > bv) { bv = v; best = a; } }
     const act = ACTIONS[best]; let target = null;
+    // people who work side by side get to know each other
+    const coworker = () => {
+      const L = Math.min(nb.length, CAP), s = (rng() * L) | 0;
+      for (let j = 0; j < L; j++) { const o = nb[(s + j) % L]; if (o.alive && o.action === act) { const a = rel(m, o.id, true), b = rel(o, m.id, true); if (a) a.friend = clamp(a.friend + 0.01 * span); if (b) b.friend = clamp(b.friend + 0.01 * span); return; } }
+    };
     // consequences
     switch (act) {
-      case 'work': n.meaning = clamp(n.meaning - 0.1); n.hunger = clamp(n.hunger - 0.1 * food); n.rest = clamp(n.rest + 0.05); break;
-      case 'farm': n.hunger = clamp(n.hunger - 0.35 * (0.3 + food)); n.rest = clamp(n.rest + 0.08); break;
-      case 'build': n.safety = clamp(n.safety - 0.15); n.meaning = clamp(n.meaning - 0.1); break;
+      case 'work': n.meaning = clamp(n.meaning - 0.1); n.hunger = clamp(n.hunger - 0.1 * food); n.rest = clamp(n.rest + 0.05); coworker(); break;
+      case 'farm': n.hunger = clamp(n.hunger - 0.35 * (0.3 + food)); n.rest = clamp(n.rest + 0.08); coworker(); break;
+      case 'build': n.safety = clamp(n.safety - 0.15); n.meaning = clamp(n.meaning - 0.1); coworker(); break;
       case 'wander': n.meaning = clamp(n.meaning - 0.05 * T.curiosity); break;
-      case 'rest': n.rest = clamp(n.rest - 0.5); break;
+      case 'rest': n.rest = clamp(n.rest - 0.7); break;
       case 'socialize': case 'court': {
-        const o = act === 'court' ? bestMate : nb[(rng() * Math.min(nb.length, CAP)) | 0];
+        const o = act === 'court' ? bestMate : company(m, nb, rng, world, CELL * 1.5);
         if (o) {
-          target = o.id; const r = rel(m, o.id), r2 = rel(o, m.id);
-          if (act === 'court') { r.love = clamp(r.love + 0.15); r2.love = clamp(r2.love + 0.1 * o.traits.sociability + 0.05); }
-          r.friend = clamp(r.friend + 0.08); r2.friend = clamp(r2.friend + 0.05);
-          if (o.traits.ambition > 0.7 && T.ambition > 0.7 && rng() < 0.1) { r.rival = clamp(r.rival + 0.2); }
+          target = o.id; const r = rel(m, o.id), r2 = rel(o, m.id), OT = o.traits;
+          // like gets on with like: kindness, temper and faith make or break a friendship
+          const fit = 1 - (Math.abs(T.kindness - OT.kindness) + Math.abs(T.temper - OT.temper) + Math.abs(m.faith - o.faith)) / 3;
+          if (act === 'court') { r.love = clamp(r.love + 0.15 * span); r2.love = clamp(r2.love + (0.1 * OT.sociability + 0.05) * span); }
+          r.friend = clamp(r.friend + 0.1 * fit * span); r2.friend = clamp(r2.friend + 0.07 * fit * span);
+          if (o.id === m.spouse) { r.love = clamp(r.love + 0.03 * fit * span); r2.love = clamp(r2.love + 0.03 * fit * span); } // an evening together
+          if (OT.ambition > 0.7 && T.ambition > 0.7 && rng() < 0.1) { r.rival = clamp(r.rival + 0.2); }
+          if (rng() < Math.min(0.9, (T.temper + OT.temper) * (1 - fit) * 0.18 * span)) { // hot tempers and bad fits quarrel
+            r.grudge = clamp(r.grudge + 0.12); r2.grudge = clamp(r2.grudge + 0.08); r.friend *= 0.7; r2.friend *= 0.7; remember(m, 'quarrel', -0.3, t, o.id);
+            if (o.id === m.spouse) { r.love *= 0.9; r2.love *= 0.9; }
+          }
           n.belonging = clamp(n.belonging - 0.2);
         }
         break;
@@ -554,7 +631,7 @@ export function tick(world, ws = {}, dt = 0.1) {
         const god = m.allegiance; target = god; m.preached++; if (m.preached >= 3) m.priest = true; n.meaning = clamp(n.meaning - 0.15);
         for (let j = 0, L = Math.min(nb.length, 4); j < L; j++) {
           const o = nb[(rng() * Math.min(nb.length, CAP)) | 0]; if (!o || !o.alive || o === m) continue;
-          const sway = TUNING.preachSway * (1 - o.traits.stubbornness) * (0.5 + zeal);
+          const sway = TUNING.preachSway * (1 - o.traits.stubbornness) * (0.5 + zeal) * span;
           if (o.allegiance === god) { if (god === 'true') faithChange(o, sway * 0.5, t); else addDev(o, god, sway * 0.5); continue; }
           if (god === 'true') faithChange(o, sway, t); else { addDev(o, god, sway); if (!o.devotion) o.devotion = {}; }
           if (o.allegiance && o.allegiance !== god && o.allegiance !== 'true') addDev(o, o.allegiance, -sway * 0.5);
