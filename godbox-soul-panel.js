@@ -1,7 +1,7 @@
 // GODBOX soul panel — the earth page's person inspector, built on godbox-soul.js (layout follows godbox-soul-demo.html).
 // Pure DOM; knows nothing about meshes/assets. Host passes: S (soul module), el (container), state() -> {world,civ,soul},
 // and callbacks: follow(id), go(id), close(), changed(id) (e.g. after a rename), isFollowing().
-const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&', '<': '<', '>': '>', '"': '"' }[c]));
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '\x26amp;', '<': '\x26lt;', '>': '\x26gt;', '"': '\x26quot;' }[c]));
 const CSS = `
 #soulbox .soul{--gold:#d8b45a;--dim:#a8977a;--line:#4a3a26;font:12.5px/1.45 Georgia,'Palatino Linotype',serif;color:#e9dcc0}
 #soulbox .soul h3{margin:8px 0 4px;color:var(--gold);font-size:12px;letter-spacing:1px;font-variant:small-caps}
