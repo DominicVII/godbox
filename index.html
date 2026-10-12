@@ -2,17 +2,47 @@
 <style>
 html,body{margin:0;background:#000;overflow:hidden;font:13px system-ui,sans-serif;color:#eee}
 canvas#gl{display:block;cursor:crosshair}
-#tb{position:fixed;left:0;right:0;bottom:0;background:#000c;padding:5px;display:flex;flex-wrap:wrap;gap:3px;justify-content:center;z-index:5}
-#tb button,.btn{background:#223;color:#eee;border:1px solid #556;padding:4px 8px;border-radius:5px;cursor:pointer;font:inherit}
-#tb button.on{background:#a8721c;border-color:#ffd77a}
+#tb{position:fixed;left:50%;transform:translateX(-50%);bottom:6px;background:#0a0d14e8;border:1px solid #334;padding:4px 6px 5px;display:flex;gap:6px;z-index:5;border-radius:10px;max-width:calc(100vw - 12px);overflow-x:auto;scrollbar-width:thin}
+#tb .grp{display:flex;flex-direction:column;align-items:center;padding:0 4px;border-left:1px solid #2a3040}#tb .grp:first-child{border-left:0}
+#tb .gl{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;opacity:.55;margin-bottom:2px;white-space:nowrap}
+#tb .gb{display:flex;gap:2px;align-items:center}
+#tb button{position:relative;background:#1b2130;color:#eee;border:1px solid #3a4256;width:34px;height:32px;padding:0;border-radius:6px;cursor:pointer;font:17px/1 system-ui,sans-serif}
+#tb button:hover{background:#2a3348;border-color:#7a88aa}
+#tb button.on{background:#a8721c;border-color:#ffd77a;box-shadow:0 0 0 1px #ffd77a inset}
+#tb button .k{position:absolute;right:1px;bottom:0;font-size:8.5px;opacity:.65;font-family:monospace}
+#tb .spd{font:12px monospace;min-width:42px;text-align:center}#tb input[type=range]{width:64px}
+.btn{background:#223;color:#eee;border:1px solid #556;padding:4px 8px;border-radius:5px;cursor:pointer;font:inherit}
 .pn{position:fixed;background:#000b;padding:8px;border-radius:6px;line-height:1.45;z-index:4}
-#hud{left:8px;top:8px;width:340px}
-#kd{left:8px;top:96px;width:340px;max-height:230px;overflow:auto;font-size:12px}
-#ins{right:8px;top:8px;width:300px;display:none;max-height:calc(100vh - 260px);overflow:auto}
-#set{right:320px;top:8px;width:270px;display:none;max-height:calc(100vh - 120px);overflow:auto;font-size:12px}
+.pw{position:fixed;z-index:4;background:#070a10d8;border:1px solid #2c3344;border-radius:8px;box-shadow:0 2px 10px #0008;display:flex;flex-direction:column;min-width:160px}
+.pw .ph{display:flex;align-items:center;gap:6px;padding:3px 8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#aab;cursor:move;user-select:none;border-bottom:1px solid #222a38}
+.pw .ph b{flex:1}.pw .ph button{background:none;border:0;color:#ccd;cursor:pointer;font-size:13px;padding:0 3px}
+.pw .pb{overflow:auto;padding:6px 8px}.pw.min .pb{display:none}.pw.min{min-width:0}
+.pw .pn{position:static!important;background:none;padding:0;width:auto!important;max-height:none!important;border-radius:0}
+#w-world{left:8px;top:44px;width:330px}#w-world .pb{max-height:calc(100vh - 400px);min-height:60px}
+#w-log{left:8px;bottom:76px;width:390px}#w-log .pb{max-height:170px}
+#w-mm{right:8px;bottom:76px}#w-mm .pb{padding:4px}
+#w-ins{right:8px;top:44px;width:310px}#w-ins .pb{max-height:calc(100vh - 360px)}
+#hud{width:auto}#kd{max-height:none;overflow:visible;margin-top:6px}#log{overflow:visible}
+#ins{display:block}
+#set{right:330px;top:44px;width:270px;display:none;max-height:calc(100vh - 140px);overflow:auto;font-size:12px}
 #set input[type=range]{width:120px;vertical-align:middle}
-#log{left:8px;bottom:64px;width:400px;max-height:200px;overflow:hidden;font-size:12px}
-#mm{right:8px;bottom:64px;padding:4px}#mm canvas{display:block;cursor:pointer;border-radius:4px}
+#mm canvas{display:block;cursor:pointer;border-radius:4px}
+#top{position:fixed;left:50%;top:6px;transform:translateX(-50%);z-index:5;background:#0a0d14e8;border:1px solid #334;border-radius:16px;padding:4px 14px;font-size:13px;white-space:nowrap;display:flex;gap:14px;align-items:center}
+#top .s{opacity:.55;font-size:11px;margin-right:3px}#top .lk{text-decoration:none;border-bottom:1px dotted #aaa}
+#toast{position:fixed;left:50%;top:44px;transform:translateX(-50%);z-index:9;background:#3a1418f0;border:1px solid #c55;color:#fdd;padding:6px 14px;border-radius:8px;font-size:13px;pointer-events:none;opacity:0;transition:opacity .25s}
+#toast.ok{background:#14301df0;border-color:#5c8;color:#dfe}#toast.show{opacity:1}
+#curl{position:fixed;z-index:6;pointer-events:none;font-size:12px;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;transform:translate(14px,10px)}
+#curl.miss{color:#ff8a8a}
+#dlg{position:fixed;left:50%;top:30%;transform:translateX(-50%);z-index:10;background:#0d111bf5;border:1px solid #6a7699;border-radius:10px;padding:14px;width:min(420px,90vw);box-shadow:0 8px 30px #000a;display:none}
+#dlg.open{display:block}#dlg h3{margin:0 0 8px;font-size:15px}#dlg input{width:100%;box-sizing:border-box;background:#111;color:#eee;border:1px solid #556;border-radius:5px;padding:6px;font:inherit}
+#dlg .row{display:flex;gap:6px;justify-content:flex-end;margin-top:10px}#dlg .sub{font-size:11px;opacity:.6;margin-top:6px}
+#popt{position:fixed;left:50%;transform:translateX(-50%);bottom:76px;z-index:5;background:#0a0d14e8;border:1px solid #445;border-radius:8px;padding:5px 10px;font-size:12px;display:none;gap:10px;align-items:center}
+#popt input{width:58px;background:#111;color:#eee;border:1px solid #445}#popt select{background:#111;color:#eee;border:1px solid #445}
+@media(max-width:1560px){#tb{gap:3px;padding:3px 4px 4px}#tb .grp{padding:0 2px}#tb button{width:28px;height:30px;font-size:15px}#tb input[type=range]{width:46px}#tb .spd{min-width:34px;font-size:11px}#w-world{width:300px}#w-log{width:340px}}
+#help{position:fixed;inset:0;z-index:20;background:#000a;display:none;align-items:center;justify-content:center}
+#help .card{background:#0d111b;border:1px solid #6a7699;border-radius:12px;padding:18px 22px;width:min(760px,92vw);max-height:86vh;overflow:auto;line-height:1.5}
+#help h2{margin:0 0 6px}#help table{border-collapse:collapse;font-size:12.5px}#help td{padding:1px 8px 1px 0;vertical-align:top}#help kbd{background:#223;border:1px solid #556;border-radius:3px;padding:0 4px;font:11px monospace}
+#help .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 #lbl div{position:fixed;transform:translate(-50%,-100%);font-size:11px;color:#fff;text-shadow:0 0 3px #000,0 0 2px #000;pointer-events:none;white-space:nowrap;z-index:3}
 #cx{left:50%;top:40px;transform:translateX(-50%);width:min(760px,90vw);height:min(560px,75vh);display:none;flex-direction:column;z-index:6;background:#0b0d12ee;border:1px solid #445}#cx .tabs span{display:inline-block;padding:3px 8px;cursor:pointer;opacity:.6;border-bottom:2px solid transparent}#cx .tabs span.on{opacity:1;border-color:#ffd77a}#cx .body{display:flex;flex:1;min-height:0;margin-top:6px;gap:8px}#cxl{width:42%;overflow:auto;font-size:12px}#cxl div{padding:2px 4px;cursor:pointer;border-radius:3px}#cxl div:hover,#cxl div.on{background:#2a2f3c}#cxd{flex:1;overflow:auto;font-size:12.5px;line-height:1.5}.lk{cursor:pointer;text-decoration:underline dotted}
 #tabs span{cursor:pointer;margin-right:8px;opacity:.6}#tabs span.on{opacity:1;text-decoration:underline}
@@ -30,7 +60,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 let A=null,MD=null;
 try{A=await import('./godbox-assets.js')}catch(e){console.warn('godbox-assets.js unavailable, using placeholders')}
 try{MD=await import('./godbox-minds.js')}catch(e){console.warn('godbox-minds.js unavailable, using built-in minds')}
-let V=null,CU=null,GN=null;if(MD){try{[V,CU,GN]=await Promise.all([import('./godbox-civ.js'),import('./godbox-culture.js'),import('./godbox-genetics.js')])}catch(e){console.warn('civ layers unavailable',e);V=null}}
+let GP=null;let V=null,CU=null,GN=null;if(MD){try{[V,CU,GN]=await Promise.all([import('./godbox-civ.js'),import('./godbox-culture.js'),import('./godbox-genetics.js')])}catch(e){console.warn('civ layers unavailable',e);V=null}}
+if(V){try{GP=await import('./godbox-powers.js')}catch(e){console.info('powers unavailable',e.message)}}
 const QS=new URLSearchParams(location.search);const CIVN=+(QS.get('people')||360),CIVRATE=+(QS.get('invent')||6);
 let civ=null;const CIV=!!V;
 
@@ -253,18 +284,12 @@ function step(dt){yr+=dt*.05;simT+=dt;
 function updateOwners(){const NO=HK.layer&&HK.layer.nationOwner&&HK.layer.nationOwner();if(NO&&NO.owner){OWN.set(NO.owner);ownColors=NO.colors;dirtyC=true;return}ownColors=null;OWN.fill(0);for(const h of houses){const id=kings.indexOf(h.k)+1;for(let j=-4;j<=4;j++){const y=Math.round(h.y)+j;if(y<0||y>=TH)continue;const s=sinT(y),w=Math.ceil(4/s);for(let i=-w;i<=w;i++){if((i*s)**2+j*j>16)continue;OWN[y*TW+wrapX(Math.round(h.x)+i)]=id}}}dirtyC=true}
 
 // ================= GOD TOOLS =================
-const tools=[['🧍','human'],['🏕','tribe'],['🌾','bless'],['❤','heal'],['⚡','lightning'],['🔥','fire'],['☄','meteor'],['🦠','plague'],['⚔','war'],['🕊','peace'],['🗣','speak'],['🗿','smite idol'],['🌊','water'],['🌱','land'],['🌲','forest'],['⛰','mountain'],['🔍','inspect']];let tool='inspect',brush=3;
+let tool='inspect',brush=3;
 const PAINT=['water','land','forest','mountain','fire','bless'];
-const tb=document.getElementById('tb');tools.forEach(([i,n])=>{let b=document.createElement('button');b.textContent=i+' '+n;b.onclick=()=>{tool=n;[...tb.querySelectorAll('.t')].forEach(c=>c.classList.remove('on'));b.classList.add('on')};b.className='t'+(n==tool?' on':'');tb.appendChild(b)});
-const SP=[.1,.25,.5,1,3];let sb=document.createElement('button');sb.textContent='⏩ ×0.25';sb.onclick=()=>{speed=SP[(SP.indexOf(speed)+1)%SP.length];sb.textContent='⏩ ×'+speed};tb.appendChild(sb);
-let pb=document.createElement('button');pb.textContent='⏸';pb.onclick=()=>{paused=!paused;pb.textContent=paused?'▶':'⏸'};tb.appendChild(pb);
-let fl=document.createElement('button');fl.textContent='🌋 Flood the world';fl.onclick=()=>{if(!confirm('Flood the whole world? Everyone dies.'))return;floodWorld()};tb.appendChild(fl);
-let nw=document.createElement('button');nw.textContent='✨ New world';nw.onclick=()=>{if(confirm('Unmake this world and make a new one?')){chronicle('You unmade the world.');newWorld()}};tb.appendChild(nw);
-let sv=document.createElement('button');sv.textContent='💾 Save';sv.onclick=save;tb.appendChild(sv);let ld=document.createElement('button');ld.textContent='📂 Load';ld.onclick=load;tb.appendChild(ld);
-let st=document.createElement('button');st.textContent='⚙ Settings';st.onclick=()=>{const s=document.getElementById('set');s.style.display=s.style.display=='block'?'none':'block';buildSettings()};tb.appendChild(st);let cxb=document.createElement('button');cxb.textContent='📖 Codex';cxb.onclick=()=>{const c=document.getElementById('cx');if(c.style.display=='flex')c.style.display='none';else openCodex()};tb.appendChild(cxb);
+const tb=document.getElementById('tb');
 function floodWorld(){for(let i=0;i<NT;i++)if(T[i]<6){T[i]=1;tileH(i)}dirtyH=dirtyC=true;mind.notify({type:'flood',intensity:1,cruel:true});P.forEach(p=>{p.hp=0;p.cause='the great flood'});houses=[];houseVer++;log('🌊 The great flood. Nothing living remains.');chronicle('You drowned the whole world in the great flood.')}
 function paint(x,y,v){for(let j=-brush;j<=brush;j++){const Y=Math.floor(y)+j;if(Y<0||Y>=TH)continue;const s=sinT(Y),w=Math.ceil(brush/s);for(let i=-w;i<=w;i++){if((i*s)**2+j*j>brush*brush)continue;const k=Y*TW+wrapX(Math.floor(x)+i);if(T[k]==9&&v!=1)continue;setT(k,v);F[k]=0;if(v==6||v==1){tileH(k);dirtyH=true}}}if(v<2||v==6){const hl=houses.length;houses=houses.filter(h=>land(at(h.x,h.y)));if(hl!=houses.length)houseVer++}}
-function act(x,y,click){
+function act(x,y,click){const PX=POW[tool];if(PX&&PX.ext){if(click||PX.paint)runPower(PX,x,y,click);return}
  if(tool=='water')paint(x,y,1);if(tool=='land')paint(x,y,3);if(tool=='forest')paint(x,y,4);if(tool=='mountain')paint(x,y,6);
  if(['water','land','forest','mountain'].includes(tool)&&click)chronicle(`You reshaped the earth (${tool}).`);
  if(tool=='fire'){for(let i=0;i<6;i++){F[tidx(x+Math.random()*3-1.5,y+Math.random()*3-1.5)]=1}dirtyC=true;if(click){chronicle('You set the land on fire.');mind.notify({type:'fire',x,y,radius:8,cruel:true},near(x,y,16))}}
@@ -278,8 +303,8 @@ function act(x,y,click){
  if(tool=='plague'){const n=near(x,y,4);n.forEach(p=>{p.sick=1;J(p,'Fell sick with plague.')});mind.notify({type:'plague',x,y,radius:6,cruel:true},near(x,y,10));log('🦠 A plague begins.');chronicle(`You sent a plague upon ${n.length}.`)}
  if(tool=='war'||tool=='peace'){let a=near(x,y,8).map(p=>p.k).filter(Boolean)[0];if(!a)return;kings.filter(b=>b!==a).forEach(b=>{if(tool=='war'){a.war.add(b);b.war.add(a)}else{a.war.delete(b);b.war.delete(a)}});
   const msg=tool=='war'?`⚔ Divine fury drives <span style=color:${a.c}>${a.name}</span> to war against everyone.`:`🕊 <span style=color:${a.c}>${a.name}</span> makes peace with everyone.`;log(msg);chronicle(msg);mind.notify({type:tool,x,y,radius:8},P.filter(p=>p.k===a))}
- if(tool=='speak'){let s=prompt('What do you tell them?');if(s){let ob=0,no=0,ex=null;near(x,y,20).forEach(p=>{const r=mind.respond(p,s);p.thought=`The voice said: "${s}". ${r.reply}`;J(p,`Heard the voice: "${s}" and ${r.obey?'obeyed':'refused'}.`);if(r.obey){ob++;const kd=r.kind;p.intent=kd=='worship'?'pray':kd=='build'?'build':kd=='work'?'work':kd=='migrate'?'migrate':kd=='rest'?'rest':kd=='violence'?'fight':null}else{no++;ex=ex||[p,r.reply]}});
-  mind.notify({type:'speak',text:s,x,y,radius:20},near(x,y,20));log(`🗣 A voice from heaven: "${s}" (${ob} obey, ${no} refuse)`);chronicle(`You spoke: "${s}". ${ob} obeyed, ${no} refused${ex?` — ${ex[0].name.split(' ')[0]}: "${ex[1]}"`:''}.`)}}
+ if(tool=='speak'){ask('🗣 Speak to them','What do you tell them?').then(s=>{if(!s)return;let ob=0,no=0,ex=null;near(x,y,20).forEach(p=>{const r=mind.respond(p,s);p.thought=`The voice said: "${s}". ${r.reply}`;J(p,`Heard the voice: "${s}" and ${r.obey?'obeyed':'refused'}.`);if(r.obey){ob++;const kd=r.kind;p.intent=kd=='worship'?'pray':kd=='build'?'build':kd=='work'?'work':kd=='migrate'?'migrate':kd=='rest'?'rest':kd=='violence'?'fight':null}else{no++;ex=ex||[p,r.reply]}});
+  mind.notify({type:'speak',text:s,x,y,radius:20},near(x,y,20));log(`🗣 A voice from heaven: "${s}" (${ob} obey, ${no} refuse)`);chronicle(`You spoke: "${s}". ${ob} obeyed, ${no} refused${ex?` — ${ex[0].name.split(' ')[0]}: "${ex[1]}"`:''}.`)})}
  if(tool=='smite idol'){const n=near(x,y,12);const cnt={};n.forEach(p=>{const g=mind.godId(p);if(g&&g!=='true')cnt[g]=(cnt[g]||0)+1});let id=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0];const G=mind.gods();if(!id){const best=Object.entries(G.byGod).sort((a,b)=>b[1].followers-a[1].followers)[0];id=best&&best[0]}
   if(!id){log('There is no idol here to smite.');return}const g=G.byGod[id];lightningFX(x,y,0xffd77a);mind.smite(id,x,y);n.filter(p=>mind.godId(p)===id).forEach(p=>{p.thought=`The shrine of ${g.name} lies broken. Was it ever real?`;J(p,`Saw the idol of ${g.name} struck down.`)});log(`🗿 The idol of <b>${g.name}</b> is struck down.`);chronicle(`You smote the idol of ${g.name} (${g.followers} followers).`)}
  if(tool=='inspect')pickAt(x,y)}
@@ -299,11 +324,11 @@ function buildSettings(){const s=document.getElementById('set');const secs=[];if
  document.getElementById('tdef').onclick=()=>{if(mind.tuning)Object.assign(mind.tuning,D.m);if(V)Object.assign(V.TUNING,D.c);buildSettings()}}
 
 // ================= SAVE / LOAD =================
-function save(){const d={v:2,seed,yr,ages,nextId,nextK,simT,T:Array.from(T),E:Array.from(E),kings:kings.map(k=>({...k,war:[...k.war].map(o=>kings.indexOf(o)),houses:undefined})),houses:houses.map(h=>({...h,k:kings.indexOf(h.k)})),P:P.map(p=>({...p,k:p.k?kings.indexOf(p.k):-1,mind:undefined,killer:undefined})),chron,minds:mind.save(),civ:civ?V.serialize(civ):null,civTuning:V?{...V.TUNING}:null,tuning:mind.tuning?{...mind.tuning}:null,cam:{tx:cam.tx,ty:cam.ty,alt:cam.alt}};
+function save(){const d={v:2,seed,yr,ages,nextId,nextK,simT,T:Array.from(T),E:Array.from(E),kings:kings.map(k=>({...k,war:[...k.war].map(o=>kings.indexOf(o)),houses:undefined})),houses:houses.map(h=>({...h,k:kings.indexOf(h.k)})),P:P.map(p=>({...p,k:p.k?kings.indexOf(p.k):-1,mind:undefined,killer:undefined})),chron,minds:mind.save(),civ:civ?V.serialize(civ):null,civTuning:V?{...V.TUNING}:null,tuning:mind.tuning?{...mind.tuning}:null,cam:{tx:cam.tx,ty:cam.ty,alt:cam.alt},powers:GPS&&GPS.civ===civ&&GPS.powers?GPS.powers:null};
  try{localStorage.setItem('godbox-earth',JSON.stringify(d));log('💾 World saved.')}catch(e){log('Save failed: '+e.message)}}
 function load(){const s=localStorage.getItem('godbox-earth');if(!s){log('No saved world.');return}const d=JSON.parse(s);seed=d.seed;yr=d.yr;ages=d.ages;nextId=d.nextId;nextK=d.nextK||99;simT=d.simT;T.set(d.T);E.set(d.E);F.fill(0);for(let i=0;i<NT;i++)tileH(i);
  kings=d.kings.map(k=>({...k,war:new Set(),houses:[]}));d.kings.forEach((k,i)=>k.war.forEach(j=>kings[i].war.add(kings[j])));houses=d.houses.map(h=>({...h,k:kings[h.k]}));P=d.P.map(p=>({...p,k:p.k>=0?kings[p.k]:null}));byId=new Map(P.map(p=>[p.id,p]));chron=d.chron||[];
- if(d.minds)mind.load(d.minds,P);else{mind.reset();P.forEach(p=>mind.create(p))}if(d.civ&&V){civ=V.deserialize(d.civ);if(d.civTuning)Object.assign(V.TUNING,d.civTuning);for(const k in kingByNat)delete kingByNat[k];for(const k of kings)if(k.civId!=null)kingByNat[k.civId]=k;registerCivLayer()}else{civ=null;HK.layer=null}if(d.tuning&&mind.tuning)Object.assign(mind.tuning,d.tuning);if(d.cam)Object.assign(cam,d.cam);sel=null;dirtyH=dirtyC=true;houseVer++;log('📂 World loaded.');chronicle('You restored the world from memory.')}
+ if(d.minds)mind.load(d.minds,P);else{mind.reset();P.forEach(p=>mind.create(p))}if(d.civ&&V){civ=V.deserialize(d.civ);if(d.civTuning)Object.assign(V.TUNING,d.civTuning);for(const k in kingByNat)delete kingByNat[k];for(const k of kings)if(k.civId!=null)kingByNat[k.civId]=k;registerCivLayer()}else{civ=null;HK.layer=null}if(d.tuning&&mind.tuning)Object.assign(mind.tuning,d.tuning);if(d.cam)Object.assign(cam,d.cam);GPS=null;if(d.powers&&civ)gps().powers=d.powers;sel=null;dirtyH=dirtyC=true;houseVer++;log('📂 World loaded.');chronicle('You restored the world from memory.')}
 
 // ================= CAMERA =================
 const cam={tx:0,ty:80,alt:2600,head:0,fly:null};let follow=false;
@@ -324,20 +349,19 @@ function pickSurface(cx,cy){ray.setFromCamera(new THREE.Vector2(cx/innerWidth*2-
  for(let it=0;it<5;it++){const b=o.dot(d),c=o.lengthSq()-rad*rad,disc=b*b-c;if(disc<0)return hit;const t=-b-Math.sqrt(disc);if(t<0)return hit;const p=o.clone().addScaledVector(d,t);const tt=tileOfDir(p);hit=tt;rad=R+Math.max(0,heightAt(tt.x,tt.y))}return hit}
 const mouse={x:0,y:0,down:false,btn:0,moved:0,lx:0,ly:0};
 function pickAt(x,y){let best=null,bd=1e9;
- if(cam.alt<400){const v=new THREE.Vector3();for(const p of P){surf(p.x,p.y,4,v).project(camera);if(v.z>1)continue;const sx=(v.x+1)/2*innerWidth,sy=(1-v.y)/2*innerHeight,d=Math.hypot(sx-mouse.x,sy-mouse.y);if(d<28&&d<bd){bd=d;best=p}}}
- if(!best)best=near(x,y,2.5).sort((a,b)=>dist(a.x,a.y,x,y)-dist(b.x,b.y,x,y))[0]||null;sel=best;if(!sel)follow=false}
+ if(cam.alt<400){const v=new THREE.Vector3();for(const p of P){surf(p.x,p.y,4,v).project(camera);if(v.z>1)continue;const sx=(v.x+1)/2*innerWidth,sy=(1-v.y)/2*innerHeight,d=Math.hypot(sx-mouse.x,sy-mouse.y);if(d<46&&d<bd){bd=d;best=p}}}
+ if(!best)best=near(x,y,Math.max(2.5,Math.min(8,cam.alt/80))).sort((a,b)=>dist(a.x,a.y,x,y)-dist(b.x,b.y,x,y))[0]||null;sel=best;if(!sel)follow=false}
 cv.addEventListener('contextmenu',e=>e.preventDefault());
 cv.addEventListener('mousedown',e=>{mouse.down=true;mouse.btn=e.button;mouse.moved=0;mouse.lx=e.clientX;mouse.ly=e.clientY;mouse.x=e.clientX;mouse.y=e.clientY;mouse.ctrl=e.ctrlKey||e.button==2;
- if(e.button==0&&PAINT.includes(tool)&&!e.shiftKey){mouse.painting=true;const h=pickSurface(e.clientX,e.clientY);if(h)act(h.x,h.y,true)}else mouse.painting=false});
+ if(e.button==0&&POW[tool]&&POW[tool].paint&&!e.shiftKey){mouse.painting=true;useTool(pickSurface(e.clientX,e.clientY),true)}else mouse.painting=false});
 addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY;if(!mouse.down)return;const dx=e.clientX-mouse.lx,dy=e.clientY-mouse.ly;mouse.lx=e.clientX;mouse.ly=e.clientY;mouse.moved+=Math.abs(dx)+Math.abs(dy);
- if(mouse.painting){const h=pickSurface(e.clientX,e.clientY);if(h)act(h.x,h.y,false);return}
+ if(mouse.painting){const h=pickSurface(e.clientX,e.clientY);if(h)useTool(h,false);return}
  if(mouse.ctrl||mouse.btn==1){cam.head-=dx*.005;return}
  cam.fly=null;if(follow){follow=false;updFollowBtn()}const upx=cam.alt*0.83/innerHeight/TILE;const c=Math.cos(cam.head),s=Math.sin(cam.head);const ex=-dx*upx,ny=dy*upx;
  const de=ex*c+ny*s,dn=-ex*s+ny*c;cam.tx=wrapX(cam.tx+de/sinT(cam.ty));cam.ty=cam.ty-dn});
-addEventListener('mouseup',e=>{if(mouse.down&&mouse.moved<5&&!mouse.painting&&e.target===cv&&e.button==0){const h=pickSurface(e.clientX,e.clientY);if(h)act(h.x,h.y,true)}mouse.down=false;mouse.painting=false});
+addEventListener('mouseup',e=>{if(mouse.down&&mouse.moved<5&&!mouse.painting&&e.target===cv&&e.button==0){useTool(pickSurface(e.clientX,e.clientY),true)}mouse.down=false;mouse.painting=false});
 cv.addEventListener('dblclick',e=>{const h=pickSurface(e.clientX,e.clientY);if(h){follow=false;updFollowBtn();flyTo(h.x,h.y,cam.alt>900?250:Math.max(12,cam.alt*.3))}});
 cv.addEventListener('wheel',e=>{e.preventDefault();cam.fly=null;cam.alt=Math.max(4,Math.min(5000,cam.alt*Math.exp(e.deltaY*.0012)))},{passive:false});
-addEventListener('keydown',e=>{if(e.target.tagName=='INPUT')return;if(e.key=='q')cam.head-=.1;if(e.key=='e')cam.head+=.1;if(e.key=='f'&&sel)toggleFollow();if(e.key==' ')pb.onclick()});
 function toggleFollow(){follow=!follow&&!!sel&&!sel.dead;if(follow)flyTo(sel.x,sel.y,Math.min(cam.alt,30));updFollowBtn()}
 function updFollowBtn(){const b=document.getElementById('fbtn');if(b)b.textContent=follow?'⏹ Stop following':'🎥 Follow'}
 const mmc=document.getElementById('mmc'),mg=mmc.getContext('2d'),mmImg=mg.createImageData(TW,TH),mmo=document.createElement('canvas');mmo.width=TW;mmo.height=TH;const rgbs=COL.map(h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16)));
@@ -483,7 +507,7 @@ function civPerson(x,y){let nid=V.nationAt(civ,x,t2cY(y));if(nid==null||nid<0||!
  const p=personFromMind(m);p.x=x;p.y=y;p.tx=x;p.ty=y;p.life=['Shaped from the dust by the god.'];return p}
 function civTick(dt){civDays+=dt*.05*360;if(civDays<10)return;const chunk=Math.max(10,civDays/3);let calls=0;
  for(const p of P){const m=p.mind;if(m&&m.alive){m.x=p.x;m.y=t2cY(p.y)}}
- while(civDays>=10&&calls<3){const d=Math.min(chunk,civDays);civDays-=d;calls++;let r;try{r=V.step(civ,MW,d)}catch(e){console.error('civ step failed',e);civDays=0;break}
+ while(civDays>=10&&calls<3){const d=Math.min(chunk,civDays);civDays-=d;calls++;let r;try{r=V.step(civ,MW,d);if(GP){try{powerEvents(GP.tickPowers(gps(),d))}catch(e){console.info('powers tick',e)}}}catch(e){console.error('civ step failed',e);civDays=0;break}
   for(const a of r.actions||[]){const p=byId.get(a.id);if(p){p.intent=a.action;p.itarget=a.target}}
   let n=0;for(const e of r.events||[]){if(!e||!e.text)continue;histAll.unshift({y:yr|0,s:'🏛 '+esc(e.text),god:0});if(e.type!='feud'&&e.type!='economy'&&n++<3){logs.unshift(`<b>Year ${yr|0}</b> 🏛 ${esc(e.text)}`);logs.length=Math.min(logs.length,14)}}renderLog()}
  for(const p of P){const m=p.mind;if(!m)continue;const c=civ.people[p.id];if(!m.alive){if(p.hp>0){p.hp=0;p.cause=c&&c.cause||'unknown causes'}continue}p.age=m.age;
@@ -562,8 +586,170 @@ function loop(now){const rdt=Math.min(.1,Math.max(0,(now-last)/1000));last=now;f
  syncPeople(now/1000);updateFX(rdt);
  const camUp=camera.position.clone().normalize(),day=Math.max(0,Math.min(1,camUp.dot(sunDir)*3+.3)),low=Math.max(0,Math.min(1,1-(cam.alt-60)/700));hemi.intensity=.25+.75*day*low;
  scene.background.setRGB(.38*day*low,.6*day*low,.95*day*low);scene.fog.color.copy(scene.background);if(low>0){scene.fog.near=cam.alt*4+150;scene.fog.far=cam.alt*14+900}else{scene.fog.near=1e6;scene.fog.far=2e6}
- hemi.intensity=.18+.25*low*day;
+ uiFrame(rdt);
  renderer.render(scene,camera);requestAnimationFrame(loop)}
 newWorld();rebuildHeights();rebuildColors();drawMini();drawHUD();requestAnimationFrame(loop);
-window.GB={_lines:()=>[tradeL,powerL].map(L=>{const A=L.geometry.attributes.position.array,n=L.geometry.drawRange.count;let mn=1e9,mx=0,bad=0;for(let i=0;i<n;i++){const r=Math.hypot(A[i*3],A[i*3+1],A[i*3+2]);if(!isFinite(r))bad++;else{mn=Math.min(mn,r);mx=Math.max(mx,r)}}return{n,mn,mx,bad}}),_drawTest:l=>drawLines(tradeL,l,1.2),registerLayer:l=>{HK.layer=l;civRefresh();houseVer++;log('A civilization layer awakens.')},HK,openCodex,get civ(){return civ},get MW(){return MW},TW,TH,tidx,at,dist,near,get histAll(){return histAll},get fallen(){return fallen},get P(){return P},get kings(){return kings},get houses(){return houses},get yr(){return yr},cam,flyTo,act:(x,y,t)=>{const o=tool;tool=t;act(x,y,true);tool=o},setSpeed:s=>{speed=s},select:p=>{sel=p},toggleFollow,get fps(){return fps},level,mind,save,load,setSun:a=>{simT=a/.004},sunOver:(x,y,day)=>{sunLock=x==null?null:dirOf(x,y,new THREE.Vector3()).multiplyScalar(day?1:-1).add(new THREE.Vector3(0,.15,0)).normalize()},assets:AS.real,get deaths(){return deathCauses},get births(){return births},minds:mind.real};
+// ================= INTERFACE: palette, powers, cursor ring, dialogs, panels, top bar, help =================
+/* ---------- GB.registerPower(def) — plug-in god powers ----------
+ * def = { id, name, icon, group, radius?, key?, hint?, paint?, params?, apply(ctx) }
+ *   group  'Create' | 'Bless' | 'Destroy' | 'Terrain' | 'People' | 'Time' (anything else gets its own group)
+ *   radius brush radius in tiles (number or function(params)=>number); drawn as the on-globe cursor ring
+ *   key    single-key hotkey (ignored if it clashes with a built-in key; the tooltip shows the real one)
+ *   paint  true = applies continuously while dragging (like the terrain brushes)
+ *   params editable defaults shown in the options strip above the palette ({name:value}; options:{name:[choices]})
+ *   apply(ctx) runs on click. ctx = { x, y (tile coords), click, radius, params, people (near the point),
+ *     kingdom, nation (civ nation or null), civ, world (minds world), notify(ev), log(s), chronicle(s), toast(s,ok),
+ *     ask(title, placeholder) -> Promise<string|null>, fx:{rain(), lightning(), ring(color,radius,secs)} }
+ *   Return false or {miss:'reason'} to tell the player nothing happened; {message} is logged.
+ *   Returns an unregister function. Built-in tools are registered through the same table. */
+const TOOLDEF=[
+ {id:'human',name:'Make a human',icon:'🧍',group:'Create',key:'a',radius:.6,hint:'Shape one person from the dust (needs land)'},
+ {id:'tribe',name:'Plant a tribe',icon:'🏕',group:'Create',key:'t',radius:2,hint:'Five people and a camp (needs land)'},
+ {id:'bless',name:'Bread & rain',icon:'🌾',group:'Bless',key:'g',radius:5,paint:true,hint:'Feed and water people under the brush'},
+ {id:'heal',name:'Heal',icon:'❤',group:'Bless',key:'h',radius:6,hint:'Heal everyone nearby'},
+ {id:'peace',name:'Peace',icon:'🕊',group:'Bless',key:'y',radius:8,hint:'The nearest kingdom makes peace with all'},
+ {id:'speak',name:'Speak',icon:'🗣',group:'Bless',key:'s',radius:20,hint:'Say something; each mind decides whether to obey'},
+ {id:'lightning',name:'Lightning',icon:'⚡',group:'Destroy',key:'l',radius:1.5,hint:'Strike a point'},
+ {id:'fire',name:'Fire',icon:'🔥',group:'Destroy',key:'x',radius:2,paint:true,hint:'Set land burning (drag to spread)'},
+ {id:'meteor',name:'Meteor',icon:'☄',group:'Destroy',key:'m',radius:6,hint:'Call down a meteor; leaves a crater'},
+ {id:'plague',name:'Plague',icon:'🦠',group:'Destroy',key:'k',radius:4,hint:'Sicken people nearby'},
+ {id:'war',name:'War',icon:'⚔',group:'Destroy',key:'w',radius:8,hint:'Drive the nearest kingdom to war with all'},
+ {id:'smite idol',name:'Smite idol',icon:'🗿',group:'Destroy',key:'o',radius:12,hint:'Break the shrine of a rival god'},
+ {id:'water',name:'Water',icon:'🌊',group:'Terrain',key:'1',paint:true,hint:'Paint sea (brush size: [ ])'},
+ {id:'land',name:'Land',icon:'🌱',group:'Terrain',key:'2',paint:true,hint:'Paint grassland'},
+ {id:'forest',name:'Forest',icon:'🌲',group:'Terrain',key:'3',paint:true,hint:'Paint forest'},
+ {id:'mountain',name:'Mountain',icon:'▲',group:'Terrain',key:'4',paint:true,hint:'Raise mountains'},
+ {id:'inspect',name:'Inspect',icon:'🔍',group:'People',key:'i',radius:.35,hint:'Click a person to read their mind and life'}];
+const GROUPS=['Create','Bless','Destroy','Terrain','People','Time'],GCOL={Create:0x7fd0ff,Bless:0xffd77a,Destroy:0xff5a4a,Terrain:0x8fdc6a,People:0xffffff,Powers:0xc89bff};
+const RESERVED=new Set(['q','e','f',' ','[',']','-','=','?','/','escape']);
+const POW={};for(const d of TOOLDEF)POW[d.id]={...d,builtin:true};
+const tkey=()=>{const m={};for(const id in POW){const p=POW[id];if(p.hidden)continue;if(p.key)m[p.key.toLowerCase()]=id}return m};
+function toolRadius(id){const p=POW[id];if(!p)return 1;if(p.paint&&p.builtin)return brush;const r=typeof p.radius=='function'?p.radius(p.params||{}):p.radius;return r!=null?r:(p.params&&p.params.radius!=null?p.params.radius:brush)}
+function registerPower(def){if(!def||!def.id||typeof def.apply!='function')throw new Error('registerPower needs {id, apply}');
+ const taken=tkey();let key=def.key&&String(def.key).toLowerCase();const orig=key;if(key&&(RESERVED.has(key)||(taken[key]&&taken[key]!==def.id)))key=null;
+ if(!key){for(const c of 'zcvbnrdujp567890'){if(!taken[c]&&!RESERVED.has(c)){key=c;break}}}
+ POW[def.id]={...def,key,remapped:orig&&orig!==key?orig:null,ext:true};buildPalette();return()=>{delete POW[def.id];if(tool===def.id)setTool('inspect');buildPalette()}}
+function setTool(id){if(!POW[id]||POW[id].hidden)return;tool=id;[...tb.querySelectorAll('[data-tool]')].forEach(b=>b.classList.toggle('on',b.dataset.tool==id));buildOpts()}
+function btn(icon,title,on,extra){const b=document.createElement('button');b.innerHTML=icon+(extra||'');b.title=title;b.onclick=on;return b}
+let spdLbl,pauseB;
+function buildPalette(){tb.innerHTML='';const by={};for(const id in POW){const p=POW[id];if(p.hidden)continue;const g=GROUPS.includes(p.group)?p.group:(p.group||'Powers');(by[g]=by[g]||[]).push(p)}
+ const order=[...GROUPS.filter(g=>g!='Time'),...Object.keys(by).filter(g=>!GROUPS.includes(g)),'Time','World'];
+ for(const g of order){const items=by[g]||[];if(g!='Time'&&g!='World'&&g!='Destroy'&&g!='People'&&g!='Terrain'&&!items.length)continue;
+  const G=document.createElement('div');G.className='grp';G.dataset.g=g;G.innerHTML=`<div class=gl>${g}</div><div class=gb></div>`;const B=G.lastChild;
+  for(const p of items){const b=btn(p.icon,`${p.name}${p.key?` — key ${p.key.toUpperCase()}`:''}${p.remapped?` (moved from ${p.remapped.toUpperCase()}, which is taken)`:''}\n${p.hint||''}`,()=>setTool(p.id),p.key?`<span class=k>${p.key.toUpperCase()}</span>`:'');b.dataset.tool=p.id;if(p.id==tool)b.classList.add('on');B.appendChild(b)}
+  if(g=='Destroy')B.appendChild(btn('🌋','Flood the whole world (asks first)',()=>confirmDlg('🌋 Flood the whole world? Everyone dies.').then(ok=>ok&&floodWorld())));
+  if(g=='Terrain'){const s=document.createElement('input');s.type='range';s.min=1;s.max=10;s.value=brush;s.title='Brush radius ([ and ] keys)';s.id='brushR';s.oninput=()=>{brush=+s.value};B.appendChild(s)}
+  if(g=='People'){B.appendChild(btn('🎥','Follow the selected person — key F',()=>sel?toggleFollow():toast('Select someone first (🔍 Inspect, then click a person)')));B.appendChild(btn('📖','Codex — every person, nation and invention — key /',()=>toggleCodex()))}
+  if(g=='Time'){pauseB=btn(paused?'▶':'⏸','Pause / resume — Space',()=>setPaused(!paused));B.appendChild(pauseB);B.appendChild(btn('⏪','Slower — key -',()=>setSpeed(-1)));spdLbl=document.createElement('span');spdLbl.className='spd';spdLbl.textContent='×'+speed;B.appendChild(spdLbl);B.appendChild(btn('⏩','Faster — key =',()=>setSpeed(1)))}
+  if(g=='World'){B.appendChild(btn('💾','Save the world (browser storage)',save));B.appendChild(btn('📂','Load the saved world',load));B.appendChild(btn('⚙','Settings: faith and civilization tuning',()=>{const s=document.getElementById('set');s.style.display=s.style.display=='block'?'none':'block';buildSettings()}));B.appendChild(btn('✨','Unmake this world and make a new one (asks first)',()=>confirmDlg('✨ Unmake this world and make a new one?').then(ok=>{if(ok){chronicle('You unmade the world.');newWorld()}})));B.appendChild(btn('❓','Help and hotkeys — key ?',()=>showHelp(true)))}
+  tb.appendChild(G)}}
+const SP=[.1,.25,.5,1,3,6];
+function setSpeed(d){let i=SP.indexOf(speed);if(i<0)i=1;speed=SP[Math.max(0,Math.min(SP.length-1,i+d))];if(spdLbl)spdLbl.textContent='×'+speed;if(paused)setPaused(false)}
+function setPaused(v){paused=v;if(pauseB)pauseB.innerHTML=paused?'▶':'⏸';uiTop()}
+function toggleCodex(){const c=document.getElementById('cx');if(c.style.display=='flex')c.style.display='none';else openCodex()}
+// ---- power options strip (for plug-in powers with params) ----
+const popt=document.createElement('div');popt.id='popt';document.body.appendChild(popt);
+function buildOpts(){const p=POW[tool];if(!p||!p.params||!Object.keys(p.params).length){popt.style.display='none';return}const o=p.params.options||{};
+ popt.innerHTML=`<b>${p.icon} ${p.name}</b>`+Object.keys(p.params).filter(k=>k!='options').map(k=>{const v=p.params[k];return o[k]?`<label>${k} <select data-p=${k}>${o[k].map(c=>`<option${c==v?' selected':''}>${c}</option>`).join('')}</select></label>`:typeof v=='number'?`<label>${k} <input type=number step=any data-p=${k} value=${v}></label>`:''}).join('');
+ popt.style.display='flex';popt.querySelectorAll('[data-p]').forEach(i=>i.onchange=()=>{p.params[i.dataset.p]=i.tagName=='SELECT'?i.value:+i.value})}
+// ---- toast, dialogs ----
+const toastD=document.createElement('div');toastD.id='toast';document.body.appendChild(toastD);let toastT=0;
+function toast(s,ok){toastD.textContent=s;toastD.className='show'+(ok?' ok':'');clearTimeout(toastT);toastT=setTimeout(()=>toastD.className=ok?'ok':'',2200)}
+const dlg=document.createElement('div');dlg.id='dlg';dlg.innerHTML='<h3></h3><input><div class=row><button class="btn cancel">Cancel</button><button class="btn ok">OK</button></div><div class=sub>The world keeps turning while you decide.</div>';document.body.appendChild(dlg);
+let dlgRes=null;function dlgClose(v){dlg.classList.remove('open');const r=dlgRes;dlgRes=null;r&&r(v)}
+function openDlg(title,input,ph){if(dlgRes)dlgClose(null);dlg.querySelector('h3').textContent=title;const i=dlg.querySelector('input');i.style.display=input?'block':'none';i.value='';i.placeholder=ph||'';dlg.classList.add('open');setTimeout(()=>input?i.focus():dlg.querySelector('.ok').focus(),0);return new Promise(r=>dlgRes=r)}
+dlg.querySelector('.ok').onclick=()=>{const i=dlg.querySelector('input');dlgClose(i.style.display=='none'?true:(i.value.trim()||null))};dlg.querySelector('.cancel').onclick=()=>dlgClose(null);
+dlg.querySelector('input').addEventListener('keydown',e=>{if(e.key=='Enter')dlg.querySelector('.ok').onclick();if(e.key=='Escape')dlgClose(null);e.stopPropagation()});
+function ask(title,ph){return openDlg(title,true,ph)}
+function confirmDlg(msg){return openDlg(msg,false).then(v=>!!v)}
+// ---- panels: wrap, collapse, drag, remember ----
+const UIST=JSON.parse(localStorage.getItem('godbox-ui')||'{}');const saveUI=()=>{try{localStorage.setItem('godbox-ui',JSON.stringify(UIST))}catch(e){}};
+function mkPanel(id,title,els){const w=document.createElement('div');w.className='pw';w.id='w-'+id;w.innerHTML=`<div class=ph><b>${title}</b><button title="Collapse / expand">▾</button></div><div class=pb></div>`;const pb_=w.lastChild;els.forEach(e=>pb_.appendChild(e));document.body.appendChild(w);
+ const st=UIST[id]||{};if(st.min)w.classList.add('min');if(st.l!=null){w.style.left=st.l+'px';w.style.top=st.t+'px';w.style.right='auto';w.style.bottom='auto'}
+ const cb=w.querySelector('.ph button');cb.textContent=w.classList.contains('min')?'▸':'▾';cb.onclick=e=>{e.stopPropagation();w.classList.toggle('min');cb.textContent=w.classList.contains('min')?'▸':'▾';(UIST[id]=UIST[id]||{}).min=w.classList.contains('min');saveUI();clampPanel(w)};
+ const ph=w.firstChild;ph.addEventListener('pointerdown',e=>{if(e.target.tagName=='BUTTON')return;const r=w.getBoundingClientRect(),ox=e.clientX-r.left,oy=e.clientY-r.top;ph.setPointerCapture(e.pointerId);
+  const mv=ev=>{w.style.left=Math.max(0,Math.min(innerWidth-60,ev.clientX-ox))+'px';w.style.top=Math.max(0,Math.min(innerHeight-24,ev.clientY-oy))+'px';w.style.right='auto';w.style.bottom='auto'};
+  const up=()=>{ph.removeEventListener('pointermove',mv);ph.removeEventListener('pointerup',up);const r2=w.getBoundingClientRect();UIST[id]={...(UIST[id]||{}),l:r2.left|0,t:r2.top|0};saveUI()};ph.addEventListener('pointermove',mv);ph.addEventListener('pointerup',up)});
+ ph.addEventListener('dblclick',()=>{delete UIST[id];saveUI();w.style.left=w.style.top=w.style.right=w.style.bottom=''});return w}
+function clampPanel(w){const r=w.getBoundingClientRect();if(r.bottom>innerHeight&&w.style.top){w.style.top=Math.max(0,innerHeight-r.height-4)+'px'}}
+const $=id=>document.getElementById(id);
+const wWorld=mkPanel('world','World',[$('hud'),$('kd')]),wLog=mkPanel('log','Events',[$('log')]),wMM=mkPanel('mm','Map',[$('mm')]),wIns=mkPanel('ins','Inspector',[$('ins')]);if(!UIST.world&&innerWidth<1560){wWorld.classList.add('min');wWorld.querySelector('.ph button').textContent='▸'};
+addEventListener('resize',()=>[wWorld,wLog,wMM,wIns].forEach(clampPanel));
+// ---- top bar ----
+const topD=document.createElement('div');topD.id='top';document.body.appendChild(topD);
+function uiTop(){const alive=kings.filter(k=>!k.dead&&k.pop>0).length;let fa='';try{const G=mind.gods(),t=G.followers.true||0;fa=`${Math.round(t/Math.max(1,P.length)*100)}%`}catch(e){fa='—'}
+ topD.innerHTML=`<span><span class=s>YEAR</span>${yr|0}</span>${civ?`<span><span class=s>ERA</span><span class=lk data-cx="history:tech">${civEra()}</span></span>`:''}<span><span class=s>PEOPLE</span>${P.length}</span><span><span class=s>NATIONS</span>${alive}</span><span title="Share of people who follow you, the true god"><span class=s>FAITH</span>${fa}</span><span style="cursor:pointer" title="Space pauses; - and = change speed" id=tps>${paused?'⏸ paused':'▶ ×'+speed}</span>`;
+ const t=$('tps');if(t)t.onclick=()=>setPaused(!paused)}
+{const _dh=drawHUD;drawHUD=function(){_dh();uiTop();wIns.style.display=sel?'flex':'none'}}
+// ---- cursor ring on the globe ----
+const ringM=new THREE.Mesh(new THREE.RingGeometry(.9,1,72),new THREE.MeshBasicMaterial({color:0xffd77a,transparent:true,opacity:.85,depthTest:false,side:THREE.DoubleSide,fog:false}));ringM.renderOrder=10;ringM.visible=false;scene.add(ringM);
+const dotM=new THREE.Mesh(new THREE.CircleGeometry(1,24),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.9,depthTest:false,fog:false}));dotM.renderOrder=10;scene.add(dotM);
+const curL=document.createElement('div');curL.id='curl';document.body.appendChild(curL);
+let hover=null,pulse=0,pulseCol=0xffffff;const fxRings=[];const _z=new THREE.Vector3(0,0,1),_q=new THREE.Quaternion();
+function placeRing(m,x,y,r,lift){const p=surf(x,y,lift||1.5),n=p.clone().normalize();m.position.copy(p);_q.setFromUnitVectors(_z,n);m.quaternion.copy(_q);m.scale.setScalar(r)}
+for(let i=0;i<8;i++){const m=new THREE.Mesh(new THREE.RingGeometry(.94,1,64),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,depthTest:false,side:THREE.DoubleSide,fog:false}));m.renderOrder=9;m.visible=false;scene.add(m);fxRings.push({m,t:0,T:1})}
+function ringFX(x,y,r,col,secs){const f=fxRings.find(f=>f.t<=0)||fxRings[0];f.x=x;f.y=y;f.r=r;f.t=f.T=secs||1.5;f.m.material.color.set(col||0xffffff);f.m.visible=true}
+function uiFrame(rdt){const over=mouse.over&&!mouse.down&&!dlg.classList.contains('open');hover=over?pickSurface(mouse.x,mouse.y):null;const p=POW[tool]||{};
+ if(hover){const r=Math.max(toolRadius(tool),.3)*TILE,minR=cam.alt*.012;ringM.visible=true;ringM.material.color.setHex(GCOL[p.group]||GCOL.Powers);placeRing(ringM,hover.x,hover.y,Math.max(r,minR)*(1+pulse*.4));ringM.material.opacity=.85-pulse*.5;dotM.visible=true;placeRing(dotM,hover.x,hover.y,Math.max(1.2,cam.alt*.004));
+  curL.className='';curL.style.display='block';curL.style.left=mouse.x+'px';curL.style.top=mouse.y+'px';curL.textContent=`${p.icon||''} ${p.name||tool}${p.paint?' · r'+toolRadius(tool):''}`}
+ else{ringM.visible=dotM.visible=false;if(mouse.over&&!mouse.down){curL.className='miss';curL.style.display='block';curL.style.left=mouse.x+'px';curL.style.top=mouse.y+'px';curL.textContent='✕ off the planet'}else curL.style.display='none'}
+ pulse=Math.max(0,pulse-rdt*3);
+ for(const f of fxRings){if(f.t<=0){f.m.visible=false;continue}f.t-=rdt;const k=1-f.t/f.T;placeRing(f.m,f.x,f.y,Math.max(.5,f.r)*TILE*(.6+.6*k),2);f.m.material.opacity=.9*(1-k)}}
+cv.addEventListener('mouseenter',()=>mouse.over=true);cv.addEventListener('mouseleave',()=>{mouse.over=false;curL.style.display='none'});
+// ---- one entry point for every click on the globe ----
+function useTool(h,click){if(!h){if(click)toast('✕ Missed — that click was off the planet. Aim at the globe.');return}
+ const p=POW[tool]||{};if(click){pulse=1;ringFX(h.x,h.y,Math.max(1,toolRadius(tool)),GCOL[p.group]||GCOL.Powers,.9)}
+ if(click&&p.builtin){const L=land(at(h.x,h.y)),R=toolRadius(tool);
+  if((tool=='human'||tool=='tribe')&&!L){toast('✕ Nothing made — that is water. People need land.');return}
+  if((tool=='heal'||tool=='plague')&&!near(h.x,h.y,R).length){toast(`✕ No one within reach to ${tool=='heal'?'heal':'sicken'} — zoom in or aim at people.`);return}
+  if((tool=='war'||tool=='peace')&&!near(h.x,h.y,8).some(q=>q.k)){toast('✕ No kingdom here — aim at a town.');return}
+  if(tool=='inspect'){act(h.x,h.y,true);if(!sel)toast('No one there — zoom in and click right on a person.');return}}
+ act(h.x,h.y,click)}
+function runPower(p,x,y,click){const r=toolRadius(p.id),people=near(x,y,r),kingdom=(people.find(q=>q.k)||{}).k||null;const nation=civ&&V?(()=>{try{const ok=id=>id!=null&&id>=0&&civ.nations[id]&&civ.nations[id].alive?civ.nations[id]:null;const sx=x,sy=t2cY(y);let n=ok(V.nationAt(civ,sx,sy));const mp=civ.map;
+  for(let rr=1;!n&&rr<=3;rr++)for(let j=-rr;j<=rr&&!n;j++)for(let i=-rr;i<=rr&&!n;i++)n=ok(V.nationAt(civ,(sx+i*mp.ts+TW)%TW,Math.max(0,Math.min(TH-1,sy+j*mp.tsy))));
+  if(!n){const q=near(x,y,Math.max(r,6)).map(q=>civ.people[q.id]).find(c=>c&&c.died==null&&c.nat!=null);if(q)n=ok(q.nat)}return n}catch(e){return null}})():null;
+ const ctx={x,y,click,radius:r,params:p.params||{},people,kingdom,nation,civ,world:MW,mind,notify:ev=>mind.notify({x,y,radius:r,...ev},people),log,chronicle,toast,ask,fx:{rain:()=>rainFX(x,y),lightning:c=>lightningFX(x,y,c),ring:(c,rr,s)=>ringFX(x,y,rr||r,c,s)}};
+ let res;try{res=p.apply(ctx)}catch(e){toast('✕ '+p.name+' failed: '+e.message);console.info('power error',e);return}
+ if(res===false||(res&&res.miss)){toast('✕ '+(res&&res.miss||p.name+': nothing happened here.'));return}
+ if(res&&res.message)toast(res.message,true)}
+// ---- Neptune's godbox-powers.js, wired through registerPower ----
+let GPS=null;function gps(){if(!GPS||GPS.world!==MW||GPS.civ!==civ){const keep=GPS&&GPS.civ===civ?GPS.powers:undefined;GPS={world:MW,civ};if(keep)GPS.powers=keep}return GPS}
+const GROUP_OF={rain:'Bless',drought:'Destroy',blessNation:'Bless',curseNation:'Destroy',vision:'People',raise:'Terrain',sink:'Terrain',plague:'Destroy',heal:'Bless',lightning:'Destroy',feast:'Create'};
+const HINT={rain:'Rain on a region: fertility and food rise for a season',drought:'Withhold rain: fields fail for a season',blessNation:'Bless the nation under the cursor',curseNation:'Curse the nation under the cursor',vision:'Send a vision into the leader\'s mind (they may refuse)',raise:'Raise the land; seabed can become new land',sink:'Sink the land; coasts can drown',plague:'A spreading plague; genes decide who survives',heal:'Cure the sick nearby',lightning:'Strike a point',feast:'A miracle feast for everyone nearby'};
+function drawPowerFx(fx){for(const f of fx||[]){const x=f.x,y=f.y!=null?c2tY(f.y):null;if(x==null||y==null)continue;const r=Math.max(.6,Math.min(80,f.radius||2));
+ if(f.kind=='lightning')lightningFX(x,y);else if(f.kind=='rain'){rainFX(x,y);ringFX(x,y,r,f.color||'#7fc8ff',2)}else if(f.kind=='sick'){const q=f.person!=null&&byId.get(f.person);if(q){q.sick=1}ringFX(x,y,r,f.color||'#6bbf3a',1)}else ringFX(x,y,r,f.color||'#ffffff',Math.min(3,1+(f.duration||1)*.2))}}
+function powerEvents(evs){for(const e of evs||[]){if(e.message)log('✦ '+e.message);drawPowerFx(e.fx)}}
+function applyLandDelta(r){if(!r.kernel)return;const k={...r.kernel,y:c2tY(r.kernel.y)};const ch=GP.applyHeightKernel(null,TW,TH,1,1,k,true);let hl=houses.length;
+ for(const[i,dh]of ch){E[i]=Math.max(0,Math.min(1,E[i]+dh*.5));const t=T[i];if(t==9)continue;if(dh>0&&(t==0||t==1)&&E[i]>.3)T[i]=E[i]>.62?6:3;else if(dh>0&&E[i]>.62&&t!=6)T[i]=6;else if(dh<0&&t!=0&&t!=1&&E[i]<.25)T[i]=1;else if(dh<0&&t==6&&E[i]<.5)T[i]=3;tileH(i)}
+ houses=houses.filter(h=>land(at(h.x,h.y)));if(hl!=houses.length)houseVer++;dirtyH=dirtyC=true;treesDirty=true}
+function wirePowers(){if(!GP||!GP.POWERS)return;for(const pw of GP.POWERS){const builtinDup=POW[pw.id]&&POW[pw.id].builtin;if(builtinDup)POW[pw.id].hidden=true;
+  const params={...pw.params};const id=pw.id;
+  registerPower({id,name:pw.name,icon:pw.icon,group:GROUP_OF[id]||'Powers',key:pw.hotkey,hint:(HINT[id]||'')+(pw.target=='nation'?' (aim at a nation)':''),params,radius:p=>pw.target=='nation'?3:Math.max(1,(p.radius!=null?p.radius:4)),
+   apply(c){if(!civ)return{miss:'Divine powers need a civilization (godbox-civ) running.'};let target;if(pw.target=='nation'){if(!c.nation)return{miss:'No nation here — aim inside a nation\'s borders.'};target={nation:c.nation.id}}else target={x:c.x,y:t2cY(c.y)};
+    const {options,...pr}=c.params;const r=GP.usePower(gps(),id,target,pr);log((r.ok?'✦ ':'⚠ ')+(r.message||pw.name));if(r.ok){chronicle(`${pw.icon} ${r.message||pw.name}`);drawPowerFx(r.fx);if(r.heightDelta)applyLandDelta(r);if(id=='heal')c.people.forEach(q=>{q.sick=0});civSyncSoon=true;return{message:r.message}}return{miss:r.message}}})}
+ const n=GP.POWERS.length;log(`✦ ${n} divine powers awaken (godbox-powers).`)}
+let civSyncSoon=false;
+// ---- help overlay ----
+const helpD=document.createElement('div');helpD.id='help';document.body.appendChild(helpD);
+function showHelp(v){if(v){const keys=Object.values(POW).filter(p=>!p.hidden&&p.key).map(p=>`<tr><td><kbd>${p.key.toUpperCase()}</kbd></td><td>${p.icon} ${p.name}${p.remapped?` <span style=opacity:.6>(was ${p.remapped.toUpperCase()})</span>`:''}</td></tr>`).join('');
+ helpD.innerHTML=`<div class=card><h2>👁 You are their one true god</h2><div style=opacity:.75>They have their own minds. You can feed them, heal them, speak to them, punish them — but belief is theirs to give.</div>
+ <div class=cols style=margin-top:10px><div><b>Move</b><table><tr><td>Drag</td><td>orbit / pan</td></tr><tr><td>Wheel</td><td>zoom from orbit to the ground</td></tr><tr><td>Double-click</td><td>fly there</td></tr><tr><td>Right-drag, <kbd>Q</kbd> <kbd>E</kbd></td><td>turn</td></tr><tr><td><kbd>F</kbd></td><td>follow the selected person</td></tr></table>
+ <b style=display:block;margin-top:8px>Act</b><table><tr><td>Pick a power</td><td>from the palette at the bottom (or its key)</td></tr><tr><td>Click the globe</td><td>use it — the ring shows its reach</td></tr><tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>brush size for terrain</td></tr><tr><td><kbd>Space</kbd> <kbd>-</kbd> <kbd>=</kbd></td><td>pause, slower, faster</td></tr><tr><td><kbd>/</kbd> <kbd>?</kbd> <kbd>Esc</kbd></td><td>codex, this help, close</td></tr></table>
+ <div style=margin-top:8px;font-size:12px;opacity:.75>Panels: drag a title bar to move it, ▾ to fold it, double-click the title to reset its place.</div></div><div><b>Power keys</b><table>${keys}</table></div></div>
+ <div style=text-align:right;margin-top:10px><button class="btn x">Begin</button></div></div>`;helpD.style.display='flex';helpD.querySelector('.x').onclick=()=>showHelp(false)}else{helpD.style.display='none';try{localStorage.setItem('godbox-help-seen','1')}catch(e){}}}
+helpD.addEventListener('click',e=>{if(e.target===helpD)showHelp(false)});
+// ---- keys ----
+addEventListener('keydown',e=>{if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName))return;if(e.ctrlKey||e.metaKey||e.altKey)return;const k=e.key.toLowerCase();
+ if(k=='escape'){if(dlg.classList.contains('open'))dlgClose(null);else if(helpD.style.display=='flex')showHelp(false);else if($('cx').style.display=='flex')$('cx').style.display='none';else{sel=null;follow=false}return}
+ if(helpD.style.display=='flex'){if(k=='?')showHelp(false);return}
+ if(k=='q'){cam.head-=.1;return}if(k=='e'){cam.head+=.1;return}if(k=='f'){if(sel)toggleFollow();else toast('Select someone first');return}
+ if(k==' '){e.preventDefault();setPaused(!paused);return}if(k=='-'||k=='_'){setSpeed(-1);return}if(k=='='||k=='+'){setSpeed(1);return}
+ if(k=='['||k==']'){brush=Math.max(1,Math.min(10,brush+(k==']'?1:-1)));const b=$('brushR');if(b)b.value=brush;return}
+ if(k=='?'){showHelp(true);return}if(k=='/'){e.preventDefault();toggleCodex();return}
+ const id=tkey()[k];if(id){setTool(id)}});
+buildPalette();uiTop();
+if(GP)wirePowers();
+if(!localStorage.getItem('godbox-help-seen')&&!/[?&]nohelp/.test(location.search))showHelp(true);
+
+window.GB={registerPower,setTool,powers:()=>Object.values(POW).filter(p=>!p.hidden).map(p=>({id:p.id,name:p.name,group:p.group,key:p.key,ext:!!p.ext,remapped:p.remapped})),clickAt:(sx,sy)=>{mouse.x=sx;mouse.y=sy;useTool(pickSurface(sx,sy),true)},toast,ask,showHelp,get tool(){return tool},_lines:()=>[tradeL,powerL].map(L=>{const A=L.geometry.attributes.position.array,n=L.geometry.drawRange.count;let mn=1e9,mx=0,bad=0;for(let i=0;i<n;i++){const r=Math.hypot(A[i*3],A[i*3+1],A[i*3+2]);if(!isFinite(r))bad++;else{mn=Math.min(mn,r);mx=Math.max(mx,r)}}return{n,mn,mx,bad}}),_drawTest:l=>drawLines(tradeL,l,1.2),registerLayer:l=>{HK.layer=l;civRefresh();houseVer++;log('A civilization layer awakens.')},HK,openCodex,get civ(){return civ},get MW(){return MW},TW,TH,tidx,at,dist,near,get histAll(){return histAll},get fallen(){return fallen},get P(){return P},get kings(){return kings},get houses(){return houses},get yr(){return yr},cam,flyTo,act:(x,y,t)=>{const o=tool;tool=t;act(x,y,true);tool=o},setSpeed:s=>{speed=s},select:p=>{sel=p},toggleFollow,get fps(){return fps},level,mind,save,load,setSun:a=>{simT=a/.004},sunOver:(x,y,day)=>{sunLock=x==null?null:dirOf(x,y,new THREE.Vector3()).multiplyScalar(day?1:-1).add(new THREE.Vector3(0,.15,0)).normalize()},assets:AS.real,get deaths(){return deathCauses},get births(){return births},minds:mind.real};
 </script></body></html>
