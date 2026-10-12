@@ -486,7 +486,7 @@ function civRefresh(){const Ly=HK.layer;if(!Ly)return;try{if(Ly.tradeRoutes)draw
 function civEvent(e){try{HK.layer&&HK.layer.onEvent&&HK.layer.onEvent(e)}catch(err){console.warn(err)}}
 // ================= CODEX (click-to-inspect anything) =================
 const CXT=[['people','👤 People'],['genes','🧬 Genes'],['nations','🏰 Nations'],['leaders','👑 Leaders & factions'],['culture','🎭 Culture'],['inventions','💡 Inventions'],['history','📜 History']];
-let cxTab='people',cxSel=null;const esc=s=>String(s).replace(/</g,'<');
+let cxTab='people',cxSel=null;const esc=s=>String(s).replace(/</g,'\x26lt;');
 const kLink=k=>k?`<span class=lk data-cx="nations:${k.civId!=null?'n'+k.civId:k.id}" style=color:${k.c}>${k.name}</span>`:'no kingdom';
 function leaderOf(k){return P.filter(p=>p.k===k&&p.age>16).sort((a,b)=>(b.age+b.kids*3+b.str*5)-(a.age+a.kids*3+a.str*5))[0]}
 const findP=id=>byId.get(id)||fallen.find(q=>q.id==id);
