@@ -16,7 +16,7 @@ canvas#gl{display:block;cursor:crosshair}
 .pw{position:fixed;z-index:4;background:#070a10d8;border:1px solid #2c3344;border-radius:8px;box-shadow:0 2px 10px #0008;display:flex;flex-direction:column;min-width:160px}
 .pw .ph{display:flex;align-items:center;gap:6px;padding:3px 8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#aab;cursor:move;user-select:none;border-bottom:1px solid #222a38}
 .pw .ph b{flex:1}.pw .ph button{background:none;border:0;color:#ccd;cursor:pointer;font-size:13px;padding:0 3px}
-.pw .pb{overflow:auto;padding:6px 8px}.pw.min .pb{display:none}.pw.min{min-width:0}
+.pw .pb{overflow:auto;overscroll-behavior:contain;padding:6px 8px}.pw.min .pb{display:none}.pw.min{min-width:0}
 .pw .pn{position:static!important;background:none;padding:0;width:auto!important;max-height:none!important;border-radius:0}
 #w-world{left:8px;top:44px;width:330px}#w-world .pb{max-height:calc(100vh - 400px);min-height:60px}
 #w-log{left:8px;bottom:76px;width:390px}#w-log .pb{max-height:170px}
@@ -42,6 +42,7 @@ canvas#gl{display:block;cursor:crosshair}
 #help{position:fixed;inset:0;z-index:20;background:#000a;display:none;align-items:center;justify-content:center}
 #help .card{background:#0d111b;border:1px solid #6a7699;border-radius:12px;padding:18px 22px;width:min(760px,92vw);max-height:86vh;overflow:auto;line-height:1.5}
 #help h2{margin:0 0 6px}#help table{border-collapse:collapse;font-size:12.5px}#help td{padding:1px 8px 1px 0;vertical-align:top}#help kbd{background:#223;border:1px solid #556;border-radius:3px;padding:0 4px;font:11px monospace}
+#help .card,#cx #cxl,#cx #cxd,#set{overscroll-behavior:contain}
 #help .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 #lbl div{position:fixed;transform:translate(-50%,-100%);font-size:11px;color:#fff;text-shadow:0 0 3px #000,0 0 2px #000;pointer-events:none;white-space:nowrap;z-index:3}
 #cx{left:50%;top:40px;transform:translateX(-50%);width:min(760px,90vw);height:min(560px,75vh);display:none;flex-direction:column;z-index:6;background:#0b0d12ee;border:1px solid #445}#cx .tabs span{display:inline-block;padding:3px 8px;cursor:pointer;opacity:.6;border-bottom:2px solid transparent}#cx .tabs span.on{opacity:1;border-color:#ffd77a}#cx .body{display:flex;flex:1;min-height:0;margin-top:6px;gap:8px}#cxl{width:42%;overflow:auto;font-size:12px}#cxl div{padding:2px 4px;cursor:pointer;border-radius:3px}#cxl div:hover,#cxl div.on{background:#2a2f3c}#cxd{flex:1;overflow:auto;font-size:12.5px;line-height:1.5}.lk{cursor:pointer;text-decoration:underline dotted}
@@ -50,7 +51,7 @@ canvas#gl{display:block;cursor:crosshair}
 </style></head><body>
 <canvas id="gl"></canvas><div id="lbl"></div>
 <div id="hud" class="pn"></div><div id="kd" class="pn"></div><div id="ins" class="pn"></div><div id="set" class="pn"></div><div id="cx" class="pn"><div><b>📖 Codex</b> <span style=opacity:.6>— click anything to read its story</span><button class=btn style=float:right id=cxx>✕</button></div><div class=tabs id=cxt></div><div style=margin-top:4px><input id=cxq placeholder="search…" style="width:200px;background:#111;color:#eee;border:1px solid #445;padding:2px 5px"></div><div class=body><div id=cxl></div><div id=cxd></div></div></div>
-<div id="log" class="pn"><div id="tabs"><span data-t="ev" class="on">Events</span><span data-t="ch">Chronicle of the god</span></div><div id="logb"></div></div>
+<div id="log" class="pn"><div id="tabs"><span data-t="ev" class="on">Events</span><span data-t="ch">Chronicle of the god</span><span data-t="pr" title="Prayers rising now — click a name to inspect">🙏 Prayers</span></div><div id="logb"></div></div>
 <div id="mm" class="pn"><canvas id="mmc" width="256" height="128"></canvas><div id="alt" style="font-size:12px;margin-top:3px"></div></div>
 <div id="tb"></div>
 <script type="importmap">{"imports":{"three":"https://unpkg.com/three@0.160.0/build/three.module.js","three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"}}</script>
@@ -62,8 +63,11 @@ try{A=await import('./godbox-assets.js')}catch(e){console.warn('godbox-assets.js
 try{MD=await import('./godbox-minds.js')}catch(e){console.warn('godbox-minds.js unavailable, using built-in minds')}
 let GP=null;let V=null,CU=null,GN=null;if(MD){try{[V,CU,GN]=await Promise.all([import('./godbox-civ.js'),import('./godbox-culture.js'),import('./godbox-genetics.js')])}catch(e){console.warn('civ layers unavailable',e);V=null}}
 if(V){try{GP=await import('./godbox-powers.js')}catch(e){console.info('powers unavailable',e.message)}}
+let S=null,SPN=null;if(V){try{[S,SPN]=await Promise.all([import('./godbox-soul.js'),import('./godbox-soul-panel.js')])}catch(e){console.info('soul inspector unavailable',e.message);S=SPN=null}}
 const QS=new URLSearchParams(location.search);const CIVN=+(QS.get('people')||360),CIVRATE=+(QS.get('invent')||6);
 let civ=null;const CIV=!!V;
+// soul state for godbox-soul.js: {world, civ, soul}; time scale: 'intimate' | 'normal' | 'fast'
+const SST={get world(){return MW},get civ(){return civ},soul:null};const soulAcc={carry:0};let scale='normal';
 
 // ================= WORLD GRID (lat/lon tiles on a sphere) =================
 const TW=320,TH=160,NT=TW*TH,R=1000,TILE=2*Math.PI*R/TW;
@@ -226,7 +230,7 @@ const FN=['Ada','Bram','Cyra','Dov','Elin','Faro','Gale','Hesk','Ira','Jun','Kae
 let kings=[],P=[],houses=[],logs=[],chron=[],yr=0,nextId=1,nextK=1,sel=null,speed=.25,ages=0,byId=new Map(),houseVer=0,simT=0,paused=false;
 function J(p,s){if(!p.life||p.life[p.life.length-1]===s)return;p.life.push(`Year ${yr|0}: ${s}`);if(p.life.length>40)p.life.splice(1,1)}
 let logTab='ev',histAll=[],fallen=[];
-function renderLog(){document.getElementById('logb').innerHTML=(logTab=='ev'?logs:chron.slice(0,14)).join('<br>')}
+function renderLog(){const b=document.getElementById('logb');if(logTab=='pr'){b.className='pray';b.innerHTML=S&&civ?SPN.prayerFeed(S,SST,12):'<i>Prayers are heard once the civilization layer is running.</i>';return}b.className='';b.innerHTML=(logTab=='ev'?logs:chron.slice(0,14)).join('<br>')}
 function log(s){histAll.unshift({y:yr|0,s,god:0});if(histAll.length>2000)histAll.length=2000;logs.unshift(`<b>Year ${yr|0}</b> ${s}`);logs.length=Math.min(logs.length,14);renderLog()}
 function chronicle(s){histAll.unshift({y:yr|0,s,god:1});civEvent&&civEvent({type:'god',text:s,year:yr|0,tool});chron.unshift(`<b>Year ${yr|0}</b> ${s}`);if(chron.length>300)chron.length=300;renderLog()}
 document.querySelectorAll('#tabs span').forEach(s=>s.onclick=()=>{logTab=s.dataset.t;document.querySelectorAll('#tabs span').forEach(o=>o.classList.toggle('on',o===s));renderLog()});
@@ -235,7 +239,7 @@ function person(x,y,k,par){let p={id:nextId++,x:wrapX(x),y:clampY(y),tx:0,ty:0,n
 function kingdom(){let k={id:nextK++,ci:kings.length%8,name:['Aur','Bel','Cor','Dun','Esk','Far','Gol','Hav','Ith','Jor','Kel','Lum'][Math.random()*12|0]+['ia','oth','mar','heim','ane','os'][Math.random()*6|0],food:30,wood:10,war:new Set(),pop:0,houses:[],founded:yr|0};k.c=KC[k.ci];kings.push(k);return k}
 function spawnTribe(x,y,n=4){let k=kingdom();for(let i=0;i<n;i++)person(x+Math.random()*2,y+Math.random()*2,k);log(`The tribe of <span style=color:${k.c}>${k.name}</span> appears.`);return k}
 function randLand(t=3){let x,y,n=0;do{x=Math.random()*TW;y=TH*.2+Math.random()*TH*.6}while(at(x,y)!=t&&n++<20000);return[x,y]}
-function newWorld(){kings=[];P=[];houses=[];byId=new Map();yr=0;sel=null;follow=false;fallen.length=0;ages++;houseVer++;
+function newWorld(){SST.soul=null;kings=[];P=[];houses=[];byId=new Map();yr=0;sel=null;follow=false;fallen.length=0;ages++;houseVer++;
  if(CIV){civStart()}else{civ=null;genWorld();mind.reset();for(let i=0;i<3;i++){const[x,y]=randLand();spawnTribe(x,y,5)}}
  const k0=P[0];cam.tx=k0.x;cam.ty=k0.y;cam.alt=2600;log(ages>1?'Let there be a new world.':'The world begins.');chronicle(`World ${ages} was made by your hand.`)}
 function near(x,y,r){return P.filter(p=>dist(p.x,p.y,x,y)<r)}
@@ -267,7 +271,7 @@ function step(dt){yr+=dt*.05;simT+=dt;
  for(const k of kings){k.houses=[];k.pop=0}for(const h of houses)h.k.houses.push(h);for(const p of P)if(p.k)p.k.pop++;
  for(const k of kings){const m=k.houses;if(m.length){let sx=0,sy=0;const r=m[0].x;for(const h of m){sx+=wdx(r,h.x);sy+=h.y}k.cx=wrapX(r+sx/m.length);k.cy=sy/m.length}else{const q=P.find(p=>p.k===k);if(q){k.cx=q.x;k.cy=q.y}}}
  if(HK.layer&&HK.layer.tick){try{HK.layer.tick(dt*.05,window.GB)}catch(e){console.warn('civ tick',e)}}
- if(civ)civTick(dt);else{mindAcc+=dt;if(mindAcc>2){P.forEach(mind.sync);mind.tick(mindAcc*.05*12);mindAcc=0}}
+ if(civ){if(scale!='intimate')civTick(dt)}else{mindAcc+=dt;if(mindAcc>2){P.forEach(mind.sync);mind.tick(mindAcc*.05*12);mindAcc=0}}
  for(const p of P){if(!civ)p.age+=dt*.05;p.hunger+=dt*.04*(p.sick?2:1);if(p.sick){p.hp-=dt*.15;p.cause='plague';if(Math.random()<.02)near(p.x,p.y,1).forEach(o=>o.sick=1);if(Math.random()<.002)p.sick=0}
   const tt=at(p.x,p.y);if(!land(tt)&&tt<2){p.hp-=dt*2;p.cause='drowned'}
   if(F[tidx(p.x,p.y)]>0){p.hp-=dt*3;p.cause='burned';p.thought='Fire! Run!';p.tx=p.x+(Math.random()-.5)*10;p.ty=p.y+(Math.random()-.5)*8;p.restT=0}
@@ -324,25 +328,47 @@ function buildSettings(){const s=document.getElementById('set');const secs=[];if
  document.getElementById('tdef').onclick=()=>{if(mind.tuning)Object.assign(mind.tuning,D.m);if(V)Object.assign(V.TUNING,D.c);buildSettings()}}
 
 // ================= SAVE / LOAD =================
-function save(){const d={v:2,seed,yr,ages,nextId,nextK,simT,T:Array.from(T),E:Array.from(E),kings:kings.map(k=>({...k,war:[...k.war].map(o=>kings.indexOf(o)),houses:undefined})),houses:houses.map(h=>({...h,k:kings.indexOf(h.k)})),P:P.map(p=>({...p,k:p.k?kings.indexOf(p.k):-1,mind:undefined,killer:undefined})),chron,minds:mind.save(),civ:civ?V.serialize(civ):null,civTuning:V?{...V.TUNING}:null,tuning:mind.tuning?{...mind.tuning}:null,cam:{tx:cam.tx,ty:cam.ty,alt:cam.alt},powers:GPS&&GPS.civ===civ&&GPS.powers?GPS.powers:null};
+function save(){const d={v:2,seed,yr,ages,nextId,nextK,simT,T:Array.from(T),E:Array.from(E),kings:kings.map(k=>({...k,war:[...k.war].map(o=>kings.indexOf(o)),houses:undefined})),houses:houses.map(h=>({...h,k:kings.indexOf(h.k)})),P:P.map(p=>({...p,k:p.k?kings.indexOf(p.k):-1,mind:undefined,killer:undefined})),chron,minds:mind.save(),civ:civ?V.serialize(civ):null,civTuning:V?{...V.TUNING}:null,tuning:mind.tuning?{...mind.tuning}:null,cam:{tx:cam.tx,ty:cam.ty,alt:cam.alt},soul:SST.soul||null,scale,powers:GPS&&GPS.civ===civ&&GPS.powers?GPS.powers:null};
  try{localStorage.setItem('godbox-earth',JSON.stringify(d));log('💾 World saved.')}catch(e){log('Save failed: '+e.message)}}
 function load(){const s=localStorage.getItem('godbox-earth');if(!s){log('No saved world.');return}const d=JSON.parse(s);seed=d.seed;yr=d.yr;ages=d.ages;nextId=d.nextId;nextK=d.nextK||99;simT=d.simT;T.set(d.T);E.set(d.E);F.fill(0);for(let i=0;i<NT;i++)tileH(i);
  kings=d.kings.map(k=>({...k,war:new Set(),houses:[]}));d.kings.forEach((k,i)=>k.war.forEach(j=>kings[i].war.add(kings[j])));houses=d.houses.map(h=>({...h,k:kings[h.k]}));P=d.P.map(p=>({...p,k:p.k>=0?kings[p.k]:null}));byId=new Map(P.map(p=>[p.id,p]));chron=d.chron||[];
- if(d.minds)mind.load(d.minds,P);else{mind.reset();P.forEach(p=>mind.create(p))}if(d.civ&&V){civ=V.deserialize(d.civ);if(d.civTuning)Object.assign(V.TUNING,d.civTuning);for(const k in kingByNat)delete kingByNat[k];for(const k of kings)if(k.civId!=null)kingByNat[k.civId]=k;registerCivLayer()}else{civ=null;HK.layer=null}if(d.tuning&&mind.tuning)Object.assign(mind.tuning,d.tuning);if(d.cam)Object.assign(cam,d.cam);GPS=null;if(d.powers&&civ)gps().powers=d.powers;sel=null;dirtyH=dirtyC=true;houseVer++;log('📂 World loaded.');chronicle('You restored the world from memory.')}
+ if(d.minds)mind.load(d.minds,P);else{mind.reset();P.forEach(p=>mind.create(p))}if(d.civ&&V){civ=V.deserialize(d.civ);if(d.civTuning)Object.assign(V.TUNING,d.civTuning);for(const k in kingByNat)delete kingByNat[k];for(const k of kings)if(k.civId!=null)kingByNat[k.civId]=k;registerCivLayer()}else{civ=null;HK.layer=null}if(d.tuning&&mind.tuning)Object.assign(mind.tuning,d.tuning);if(d.cam)Object.assign(cam,d.cam);SST.soul=d.soul||null;if(d.scale)setScale(d.scale);if(soulP)soulP.clear();GPS=null;if(d.powers&&civ)gps().powers=d.powers;sel=null;dirtyH=dirtyC=true;houseVer++;log('📂 World loaded.');chronicle('You restored the world from memory.')}
 
 // ================= CAMERA =================
-const cam={tx:0,ty:80,alt:2600,head:0,fly:null};let follow=false;
-const _cp=new THREE.Vector3(),_tp=new THREE.Vector3(),_n=new THREE.Vector3(),_f=new THREE.Vector3();
-function tiltFor(a){return a>900?0:Math.pow(1-a/900,1.3)*1.3}
+const cam={tx:0,ty:80,alt:2600,head:0,fly:null,za:2600,zf:null,tb:0,vx:0,vy:0,hv:0,tv:0};let follow=false;
+// ---- god's-eye camera: eased zoom (za = goal altitude), eased pan velocity (vx/vy, screen-local), held-key orbit (hv) and tilt bias (tb) ----
+const CAMK=new Set();
+// tunable without touching asset internals: closest zoom, eye height near the ground, clip planes (near = max(nearMin, alt*nearK)), far plane
+const CAMCFG={zMin:7,zMax:5000,eyeH:3.3,nearMin:.1,nearK:.02,far:1e6};
+const _cp=new THREE.Vector3(),_tp=new THREE.Vector3(),_n=new THREE.Vector3(),_f=new THREE.Vector3(),_la=new THREE.Vector3();
+function closeK(a){return Math.max(0,Math.min(1,1-Math.log(a/CAMCFG.zMin)/Math.log(1100/CAMCFG.zMin)))} // 0 at overview .. 1 at eye level
+function tiltFor(a){const k=closeK(a);return Math.max(0,Math.min(1.52,1.48*Math.pow(k,1.1)+cam.tb*Math.min(1,k*3)))}
+function camZoom(f,sx,sy){cam.fly=null;const before=cam.za;cam.za=Math.max(CAMCFG.zMin,Math.min(CAMCFG.zMax,cam.za*f));
+ if(cam.za!==before&&sx!=null&&cam.za<1600){const h=pickSurface(sx,sy);cam.zf=h&&!follow?h:null}else if(cam.za>=1600)cam.zf=null}
+function panPx(dx,dy){const upx=cam.alt*0.83/innerHeight/TILE*(1+Math.sin(tiltFor(cam.alt))*.8);const c=Math.cos(cam.head),s=Math.sin(cam.head);const ex=-dx*upx,ny=dy*upx;
+ const de=ex*c+ny*s,dn=-ex*s+ny*c;cam.tx=wrapX(cam.tx+de/sinT(cam.ty));cam.ty=Math.max(4,Math.min(TH-4,cam.ty-dn))}
+function stopFollow(){if(follow){follow=false;updFollowBtn()}}
 function updateCamera(dt){
- if(cam.fly){const f=cam.fly;f.t=Math.min(1,f.t+dt/1.6);const e=f.t<.5?2*f.t*f.t:1-(-2*f.t+2)**2/2;cam.tx=wrapX(f.x0+f.dx*e);cam.ty=f.y0+(f.y1-f.y0)*e;const mid=Math.max(f.a0,f.a1)*(1+Math.min(1.5,f.span/40));const base=f.a0+(f.a1-f.a0)*e;cam.alt=base+(mid-Math.max(f.a0,f.a1))*Math.sin(f.t*Math.PI);if(f.t>=1){cam.fly=null;cam.alt=f.a1}}
- if(follow&&sel&&!sel.dead){if(!cam.fly){cam.tx=wrapX(cam.tx+wdx(cam.tx,sel.x)*Math.min(1,dt*4));cam.ty+=(sel.y-cam.ty)*Math.min(1,dt*4);if(cam.alt>60)cam.alt+=(30-cam.alt)*Math.min(1,dt*2)}
-  const dx=wdx(sel.x,sel.tx),dy=sel.ty-sel.y;if(Math.hypot(dx,dy)>.05){const fw=surf(sel.tx,sel.ty).sub(surf(sel.x,sel.y)),up=dirOf(sel.x,sel.y),no=northAt(sel.x,sel.y);fw.addScaledVector(up,-fw.dot(up)).normalize();const h=Math.atan2(new THREE.Vector3().crossVectors(no,fw).dot(up),no.dot(fw));let dh=h-cam.head;dh-=Math.round(dh/(2*Math.PI))*2*Math.PI;cam.head+=dh*Math.min(1,dt*1.5)}}
+ if(cam._a!=null&&cam.alt!==cam._a&&!cam.fly){cam.za=cam.alt;cam.zf=null} // someone set cam.alt directly (new world, GB.cam)
+ // held keys: WASD / arrows pan, Q/E orbit, Z/C tilt
+ const kx=(CAMK.has('d')||CAMK.has('arrowright')?1:0)-(CAMK.has('a')||CAMK.has('arrowleft')?1:0),ky=(CAMK.has('s')||CAMK.has('arrowdown')?1:0)-(CAMK.has('w')||CAMK.has('arrowup')?1:0);
+ if(kx||ky){cam.fly=null;cam.zf=null;stopFollow()}
+ const ps=innerHeight*.9,ke=Math.min(1,dt*7);cam.vx+=(kx*ps-cam.vx)*(kx?ke:Math.min(1,dt*4));cam.vy+=(ky*ps-cam.vy)*(ky?ke:Math.min(1,dt*4));
+ if(mouse.down&&mouse.panning){cam.vx=cam.vy=0}else if(Math.abs(cam.vx)+Math.abs(cam.vy)>.5)panPx(cam.vx*dt,cam.vy*dt);else cam.vx=cam.vy=0;
+ const hk=(CAMK.has('e')?1:0)-(CAMK.has('q')?1:0);cam.hv+=(hk*1.6-cam.hv)*Math.min(1,dt*(hk?6:4));if(Math.abs(cam.hv)>.002)cam.head+=cam.hv*dt;
+ const tk=(CAMK.has('z')?1:0)-(CAMK.has('c')?1:0);cam.tv+=(tk*.7-cam.tv)*Math.min(1,dt*6);if(Math.abs(cam.tv)>.002)cam.tb=Math.max(-.6,Math.min(.35,cam.tb+cam.tv*dt));
+ if(cam.fly){const f=cam.fly;f.t=Math.min(1,f.t+dt/1.6);const e=f.t<.5?2*f.t*f.t:1-(-2*f.t+2)**2/2;cam.tx=wrapX(f.x0+f.dx*e);cam.ty=f.y0+(f.y1-f.y0)*e;const mid=Math.max(f.a0,f.a1)*(1+Math.min(1.5,f.span/40));const base=f.a0+(f.a1-f.a0)*e;cam.alt=base+(mid-Math.max(f.a0,f.a1))*Math.sin(f.t*Math.PI);cam.za=cam.alt;if(f.t>=1){cam.fly=null;cam.alt=cam.za=f.a1}}
+ else{// eased zoom in log space, keeping the point under the cursor roughly fixed
+  const a0=cam.alt,la=Math.log(a0),lz=Math.log(cam.za),nl=Math.abs(lz-la)<1e-4?lz:la+(lz-la)*Math.min(1,dt*9);cam.alt=Math.exp(nl);
+  if(cam.zf&&a0!==cam.alt){const r=cam.alt/a0;cam.tx=wrapX(cam.zf.x-wdx(cam.tx,cam.zf.x)*r);cam.ty=cam.zf.y+(cam.ty-cam.zf.y)*r}else if(a0===cam.alt)cam.zf=null}
+ if(follow&&sel&&!sel.dead){if(!cam.fly){const k=1-Math.exp(-dt*3.5);cam.tx=wrapX(cam.tx+wdx(cam.tx,sel.x)*k);cam.ty+=(sel.y-cam.ty)*k}
+  const dx=wdx(sel.x,sel.tx),dy=sel.ty-sel.y;if(!hk&&Math.hypot(dx,dy)>.05){const fw=surf(sel.tx,sel.ty).sub(surf(sel.x,sel.y)),up=dirOf(sel.x,sel.y),no=northAt(sel.x,sel.y);fw.addScaledVector(up,-fw.dot(up)).normalize();const h=Math.atan2(new THREE.Vector3().crossVectors(no,fw).dot(up),no.dot(fw));let dh=h-cam.head;dh-=Math.round(dh/(2*Math.PI))*2*Math.PI;cam.head+=dh*Math.min(1,dt*.8)}}
  cam.ty=Math.max(4,Math.min(TH-4,cam.ty));
- surf(cam.tx,cam.ty,0,_tp);_n.copy(_tp).normalize();fwdHeading(cam.tx,cam.ty,cam.head,_f);const tl=tiltFor(cam.alt);
- _cp.copy(_tp).addScaledVector(_n,cam.alt*Math.cos(tl)).addScaledVector(_f,-cam.alt*Math.sin(tl));
- const ct=tileOfDir(_cp),gh=R+Math.max(0,heightAt(ct.x,ct.y))+1.5;if(_cp.length()<gh)_cp.setLength(gh);
- camera.position.copy(_cp);camera.up.copy(_n);camera.lookAt(_tp.clone().addScaledVector(_n,Math.min(3,cam.alt*.1)));camera.near=Math.max(.2,cam.alt*.02);camera.updateProjectionMatrix()}
+ surf(cam.tx,cam.ty,0,_tp);_n.copy(_tp).normalize();fwdHeading(cam.tx,cam.ty,cam.head,_f);const tl=tiltFor(cam.alt),ck=closeK(cam.alt);
+ const eye=CAMCFG.eyeH*Math.pow(ck,4); // near eye level the camera stands about a person's height above the ground
+ _cp.copy(_tp).addScaledVector(_n,Math.max(cam.alt*Math.cos(tl),eye)).addScaledVector(_f,-cam.alt*Math.sin(tl));
+ const ct=tileOfDir(_cp),gh=R+Math.max(0,heightAt(ct.x,ct.y))+Math.max(1.5,eye*.9);if(_cp.length()<gh)_cp.setLength(gh);
+ camera.position.copy(_cp);camera.up.copy(_n);camera.lookAt(_la.copy(_tp).addScaledVector(_n,Math.min(3,cam.alt*.1)+eye*.8));camera.near=Math.max(CAMCFG.nearMin,Math.min(cam.alt*CAMCFG.nearK,cam.alt*Math.cos(tl)*.5+CAMCFG.nearMin));camera.far=CAMCFG.far;camera.updateProjectionMatrix();cam._a=cam.alt}
 function flyTo(x,y,alt){cam.fly={x0:cam.tx,dx:wdx(cam.tx,x),y0:cam.ty,y1:y,a0:cam.alt,a1:alt,t:0,span:dist(cam.tx,cam.ty,x,y)}}
 const ray=new THREE.Raycaster();
 function pickSurface(cx,cy){ray.setFromCamera(new THREE.Vector2(cx/innerWidth*2-1,-cy/innerHeight*2+1),camera);const o=ray.ray.origin,d=ray.ray.direction;let rad=R,hit=null;
@@ -350,19 +376,37 @@ function pickSurface(cx,cy){ray.setFromCamera(new THREE.Vector2(cx/innerWidth*2-
 const mouse={x:0,y:0,down:false,btn:0,moved:0,lx:0,ly:0};
 function pickAt(x,y){let best=null,bd=1e9;
  if(cam.alt<400){const v=new THREE.Vector3();for(const p of P){surf(p.x,p.y,4,v).project(camera);if(v.z>1)continue;const sx=(v.x+1)/2*innerWidth,sy=(1-v.y)/2*innerHeight,d=Math.hypot(sx-mouse.x,sy-mouse.y);if(d<46&&d<bd){bd=d;best=p}}}
- if(!best)best=near(x,y,Math.max(2.5,Math.min(8,cam.alt/80))).sort((a,b)=>dist(a.x,a.y,x,y)-dist(b.x,b.y,x,y))[0]||null;sel=best;if(!sel)follow=false}
-cv.addEventListener('contextmenu',e=>e.preventDefault());
-cv.addEventListener('mousedown',e=>{mouse.down=true;mouse.btn=e.button;mouse.moved=0;mouse.lx=e.clientX;mouse.ly=e.clientY;mouse.x=e.clientX;mouse.y=e.clientY;mouse.ctrl=e.ctrlKey||e.button==2;
- if(e.button==0&&POW[tool]&&POW[tool].paint&&!e.shiftKey){mouse.painting=true;useTool(pickSurface(e.clientX,e.clientY),true)}else mouse.painting=false});
-addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY;if(!mouse.down)return;const dx=e.clientX-mouse.lx,dy=e.clientY-mouse.ly;mouse.lx=e.clientX;mouse.ly=e.clientY;mouse.moved+=Math.abs(dx)+Math.abs(dy);
+ if(!best)best=near(x,y,Math.max(2.5,Math.min(8,cam.alt/80))).sort((a,b)=>dist(a.x,a.y,x,y)-dist(b.x,b.y,x,y))[0]||null;sel=best;if(sel)openInspector(sel.id);else follow=false}
+cv.addEventListener('contextmenu',e=>e.preventDefault());cv.style.touchAction='none';
+// left = use the tool (or pan if it's not a paint tool); middle/right = pan; Ctrl/Alt+drag = orbit (sideways) & tilt (up/down)
+cv.addEventListener('mousedown',e=>{if(e.button==1)e.preventDefault();mouse.down=true;mouse.btn=e.button;mouse.moved=0;mouse.lx=e.clientX;mouse.ly=e.clientY;mouse.x=e.clientX;mouse.y=e.clientY;mouse.ctrl=e.ctrlKey||e.altKey;mouse.panning=false;mouse.vx=mouse.vy=0;mouse.t=performance.now();
+ if(e.button==0&&!mouse.ctrl&&POW[tool]&&POW[tool].paint&&!e.shiftKey){mouse.painting=true;useTool(pickSurface(e.clientX,e.clientY),true)}else mouse.painting=false});
+addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY;if(!mouse.down||mouse.touch)return;const dx=e.clientX-mouse.lx,dy=e.clientY-mouse.ly;mouse.lx=e.clientX;mouse.ly=e.clientY;mouse.moved+=Math.abs(dx)+Math.abs(dy);
  if(mouse.painting){const h=pickSurface(e.clientX,e.clientY);if(h)useTool(h,false);return}
- if(mouse.ctrl||mouse.btn==1){cam.head-=dx*.005;return}
- cam.fly=null;if(follow){follow=false;updFollowBtn()}const upx=cam.alt*0.83/innerHeight/TILE;const c=Math.cos(cam.head),s=Math.sin(cam.head);const ex=-dx*upx,ny=dy*upx;
- const de=ex*c+ny*s,dn=-ex*s+ny*c;cam.tx=wrapX(cam.tx+de/sinT(cam.ty));cam.ty=cam.ty-dn});
-addEventListener('mouseup',e=>{if(mouse.down&&mouse.moved<5&&!mouse.painting&&e.target===cv&&e.button==0){useTool(pickSurface(e.clientX,e.clientY),true)}mouse.down=false;mouse.painting=false});
-cv.addEventListener('dblclick',e=>{const h=pickSurface(e.clientX,e.clientY);if(h){follow=false;updFollowBtn();flyTo(h.x,h.y,cam.alt>900?250:Math.max(12,cam.alt*.3))}});
-cv.addEventListener('wheel',e=>{e.preventDefault();cam.fly=null;cam.alt=Math.max(4,Math.min(5000,cam.alt*Math.exp(e.deltaY*.0012)))},{passive:false});
-function toggleFollow(){follow=!follow&&!!sel&&!sel.dead;if(follow)flyTo(sel.x,sel.y,Math.min(cam.alt,30));updFollowBtn()}
+ if(mouse.moved<4)return; // small jitters stay a click
+ if(mouse.ctrl){cam.head-=dx*.005;cam.tb=Math.max(-.6,Math.min(.35,cam.tb-dy*.003));return}
+ cam.fly=null;cam.zf=null;stopFollow();mouse.panning=true;panPx(dx,dy);const now=performance.now(),idt=Math.max(.004,(now-mouse.t)/1000);mouse.t=now;mouse.vx=mouse.vx*.6+dx/idt*.4;mouse.vy=mouse.vy*.6+dy/idt*.4});
+addEventListener('mouseup',e=>{if(!mouse.down||mouse.touch)return;const wasDrag=mouse.moved>=5;if(!wasDrag&&!mouse.painting&&e.target===cv&&e.button==0){useTool(pickSurface(e.clientX,e.clientY),true)}
+ if(mouse.panning&&performance.now()-mouse.t<80){cam.vx=Math.max(-3000,Math.min(3000,mouse.vx))*.6;cam.vy=Math.max(-3000,Math.min(3000,mouse.vy))*.6} // glide
+ if(wasDrag)mouse.suppressDbl=performance.now();mouse.down=false;mouse.painting=false;mouse.panning=false});
+cv.addEventListener('auxclick',e=>e.preventDefault());
+cv.addEventListener('dblclick',e=>{if(mouse.suppressDbl&&performance.now()-mouse.suppressDbl<400)return;const h=pickSurface(e.clientX,e.clientY);if(h){stopFollow();flyTo(h.x,h.y,cam.alt>900?250:Math.max(12,cam.alt*.3))}});
+// wheel: mouse wheels give big line/page steps, trackpads give many small pixel deltas; ctrl+wheel is a trackpad pinch
+cv.addEventListener('wheel',e=>{e.preventDefault();let d=e.deltaY*(e.deltaMode==1?33:e.deltaMode==2?400:1);d=Math.max(-300,Math.min(300,d));camZoom(Math.exp(d*(e.ctrlKey?.01:.0016)),e.clientX,e.clientY)},{passive:false});
+// touch: one finger pans (tap = click), two fingers pinch-zoom and twist to orbit
+const TP=new Map();let pinch=null;
+cv.addEventListener('pointerdown',e=>{if(e.pointerType!='touch')return;cv.setPointerCapture(e.pointerId);TP.set(e.pointerId,{x:e.clientX,y:e.clientY});mouse.touch=true;
+ if(TP.size==1){mouse.down=true;mouse.btn=0;mouse.moved=0;mouse.lx=e.clientX;mouse.ly=e.clientY;mouse.x=e.clientX;mouse.y=e.clientY;mouse.painting=false;mouse.panning=false}
+ if(TP.size==2){const[a,b]=[...TP.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y),ang:Math.atan2(b.y-a.y,b.x-a.x),cx:(a.x+b.x)/2,cy:(a.y+b.y)/2};mouse.moved=99}});
+cv.addEventListener('pointermove',e=>{if(e.pointerType!='touch'||!TP.has(e.pointerId))return;TP.set(e.pointerId,{x:e.clientX,y:e.clientY});
+ if(TP.size>=2&&pinch){const[a,b]=[...TP.values()],d=Math.hypot(a.x-b.x,a.y-b.y),ang=Math.atan2(b.y-a.y,b.x-a.x),cx=(a.x+b.x)/2,cy=(a.y+b.y)/2;
+  camZoom(pinch.d/Math.max(1,d),cx,cy);let da=ang-pinch.ang;da-=Math.round(da/(2*Math.PI))*2*Math.PI;cam.head-=da;stopFollow();panPx(cx-pinch.cx,cy-pinch.cy);pinch={d,ang,cx,cy};return}
+ const dx=e.clientX-mouse.lx,dy=e.clientY-mouse.ly;mouse.lx=e.clientX;mouse.ly=e.clientY;mouse.moved+=Math.abs(dx)+Math.abs(dy);if(mouse.moved<8)return;cam.fly=null;cam.zf=null;stopFollow();mouse.panning=true;panPx(dx,dy)});
+function touchEnd(e){if(e.pointerType!='touch'||!TP.has(e.pointerId))return;TP.delete(e.pointerId);if(TP.size<2)pinch=null;
+ if(TP.size==0){if(e.type=='pointerup'&&mouse.moved<8)useTool(pickSurface(e.clientX,e.clientY),true);mouse.down=false;mouse.panning=false;setTimeout(()=>mouse.touch=false,400)}else mouse.moved=99}
+cv.addEventListener('pointerup',touchEnd);cv.addEventListener('pointercancel',touchEnd);
+function toggleFollow(){follow=!follow&&!!sel&&!sel.dead;if(follow){cam.zf=null;cam.vx=cam.vy=0;const d=dist(cam.tx,cam.ty,sel.x,sel.y);if(d>6||cam.alt>200)flyTo(sel.x,sel.y,Math.min(cam.alt,30));else cam.za=Math.min(cam.za,30)}updFollowBtn()}
+function deselect(){sel=null;stopFollow();updFollowBtn();if(soulP){soulP.clear();soulEl.style.display='none'}wIns.style.display='none'}
 function updFollowBtn(){const b=document.getElementById('fbtn');if(b)b.textContent=follow?'⏹ Stop following':'🎥 Follow'}
 const mmc=document.getElementById('mmc'),mg=mmc.getContext('2d'),mmImg=mg.createImageData(TW,TH),mmo=document.createElement('canvas');mmo.width=TW;mmo.height=TH;const rgbs=COL.map(h=>[1,3,5].map(i=>parseInt(h.substr(i,2),16)));
 function drawMini(){for(let i=0;i<NT;i++){let c=rgbs[T[i]];if(F[i]>0)c=[255,120,30];const o=i*4;mmImg.data[o]=c[0];mmImg.data[o+1]=c[1];mmImg.data[o+2]=c[2];mmImg.data[o+3]=255}mmo.getContext('2d').putImageData(mmImg,0,0);mg.drawImage(mmo,0,0,256,128);
@@ -442,7 +486,7 @@ function civRefresh(){const Ly=HK.layer;if(!Ly)return;try{if(Ly.tradeRoutes)draw
 function civEvent(e){try{HK.layer&&HK.layer.onEvent&&HK.layer.onEvent(e)}catch(err){console.warn(err)}}
 // ================= CODEX (click-to-inspect anything) =================
 const CXT=[['people','👤 People'],['genes','🧬 Genes'],['nations','🏰 Nations'],['leaders','👑 Leaders & factions'],['culture','🎭 Culture'],['inventions','💡 Inventions'],['history','📜 History']];
-let cxTab='people',cxSel=null;const esc=s=>String(s).replace(/</g,'&lt;');
+let cxTab='people',cxSel=null;const esc=s=>String(s).replace(/</g,'<');
 const kLink=k=>k?`<span class=lk data-cx="nations:${k.civId!=null?'n'+k.civId:k.id}" style=color:${k.c}>${k.name}</span>`:'no kingdom';
 function leaderOf(k){return P.filter(p=>p.k===k&&p.age>16).sort((a,b)=>(b.age+b.kids*3+b.str*5)-(a.age+a.kids*3+a.str*5))[0]}
 const findP=id=>byId.get(id)||fallen.find(q=>q.id==id);
@@ -505,9 +549,9 @@ function civPerson(x,y){let nid=V.nationAt(civ,x,t2cY(y));if(nid==null||nid<0||!
  const n=civ.nations[nid];const m=MD.createMind({x,y:t2cY(y),age:18+(Math.random()*10|0),group:nid});MD.addMind(MW,m);m.name=CU.personName(n.lang,Math.random);
  civ.people[m.id]={id:m.id,name:m.name,sex:m.sex,born:civ.year-m.age,nat:nid,fam:0,par:[],kids:[],job:'farmer',w:20,coins:0,sk:.8,g:GN.randomGenome(Math.random,n.freqs),fed:1,fac:null,gen:1};
  const p=personFromMind(m);p.x=x;p.y=y;p.tx=x;p.ty=y;p.life=['Shaped from the dust by the god.'];return p}
-function civTick(dt){civDays+=dt*.05*360;if(civDays<10)return;const chunk=Math.max(10,civDays/3);let calls=0;
+function civTick(dt,days){const one=days!=null;if(!one){civDays+=dt*.05*360;if(civDays<10)return}const chunk=one?1:Math.max(10,civDays/3);let calls=0,todo=one?days:0;
  for(const p of P){const m=p.mind;if(m&&m.alive){m.x=p.x;m.y=t2cY(p.y)}}
- while(civDays>=10&&calls<3){const d=Math.min(chunk,civDays);civDays-=d;calls++;let r;try{r=V.step(civ,MW,d);if(GP){try{powerEvents(GP.tickPowers(gps(),d))}catch(e){console.info('powers tick',e)}}}catch(e){console.error('civ step failed',e);civDays=0;break}
+ while(one?todo-->0:(civDays>=10&&calls<3)){const d=one?1:Math.min(chunk,civDays);if(!one)civDays-=d;calls++;let r;try{r=V.step(civ,MW,d);if(GP){try{powerEvents(GP.tickPowers(gps(),d))}catch(e){console.info('powers tick',e)}}if(S){try{S.tickSoul(SST,d)}catch(e){console.info('soul tick',e)}}}catch(e){console.error('civ step failed',e);civDays=0;break}
   for(const a of r.actions||[]){const p=byId.get(a.id);if(p){p.intent=a.action;p.itarget=a.target}}
   let n=0;for(const e of r.events||[]){if(!e||!e.text)continue;histAll.unshift({y:yr|0,s:'🏛 '+esc(e.text),god:0});if(e.type!='feud'&&e.type!='economy'&&n++<3){logs.unshift(`<b>Year ${yr|0}</b> 🏛 ${esc(e.text)}`);logs.length=Math.min(logs.length,14)}}renderLog()}
  for(const p of P){const m=p.mind;if(!m)continue;const c=civ.people[p.id];if(!m.alive){if(p.hp>0){p.hp=0;p.cause=c&&c.cause||'unknown causes'}continue}p.age=m.age;
@@ -570,8 +614,10 @@ function drawHUD(){const alive=kings.filter(k=>!k.dead&&k.pop>0);
 
 // ================= LOOP =================
 let last=performance.now(),acc1=0,acc2=0,acc3=0,acc4=0,lastAltBand=-1;
-function loop(now){const rdt=Math.min(.1,Math.max(0,(now-last)/1000));last=now;frames++;fpsT+=rdt;if(fpsT>=.5){fps=frames/fpsT;frames=0;fpsT=0}
- const dt=rdt*60;if(!paused){if(speed<1)step(dt*speed);else for(let k=0;k<speed;k++)step(dt)}
+function loop(now){const rawdt=Math.max(0,(now-last)/1000),rdt=Math.min(.1,rawdt);last=now;frames++;fpsT+=rdt;if(fpsT>=.5){fps=frames/fpsT;frames=0;fpsT=0}
+ const dt=rdt*60;if(!paused){if(scale=='intimate'){// ~1 day every 3 s: the calendar steps day by day; people still walk, gently
+  const n=S?Math.min(30,S.stepsFor('intimate',rawdt,soulAcc,1)):0,y0=yr;step(dt*.04);if(civ&&S){yr=y0+n/360;if(n)civTick(0,n)}}
+ else{const m=scale=='fast'?Math.min(6,Math.max(3,speed*4)):speed;if(m<1)step(dt*m);else for(let k=0;k<m;k++)step(dt)}}
  if(sunLock)sunDir.copy(sunLock);else sunDir.set(Math.cos(simT*.004),.25,Math.sin(simT*.004)).normalize();sun.position.copy(sunDir).multiplyScalar(5000);sunMesh.position.copy(sunDir).multiplyScalar(3e5);sunGlow.position.copy(sunMesh.position);
  updateCamera(rdt);
  acc1+=rdt;acc2+=rdt;acc3+=rdt;acc4+=rdt;
@@ -603,17 +649,17 @@ newWorld();rebuildHeights();rebuildColors();drawMini();drawHUD();requestAnimatio
  *   Return false or {miss:'reason'} to tell the player nothing happened; {message} is logged.
  *   Returns an unregister function. Built-in tools are registered through the same table. */
 const TOOLDEF=[
- {id:'human',name:'Make a human',icon:'🧍',group:'Create',key:'a',radius:.6,hint:'Shape one person from the dust (needs land)'},
+ {id:'human',name:'Make a human',icon:'🧍',group:'Create',key:'n',radius:.6,hint:'Shape one person from the dust (needs land)'},
  {id:'tribe',name:'Plant a tribe',icon:'🏕',group:'Create',key:'t',radius:2,hint:'Five people and a camp (needs land)'},
  {id:'bless',name:'Bread & rain',icon:'🌾',group:'Bless',key:'g',radius:5,paint:true,hint:'Feed and water people under the brush'},
  {id:'heal',name:'Heal',icon:'❤',group:'Bless',key:'h',radius:6,hint:'Heal everyone nearby'},
  {id:'peace',name:'Peace',icon:'🕊',group:'Bless',key:'y',radius:8,hint:'The nearest kingdom makes peace with all'},
- {id:'speak',name:'Speak',icon:'🗣',group:'Bless',key:'s',radius:20,hint:'Say something; each mind decides whether to obey'},
+ {id:'speak',name:'Speak',icon:'🗣',group:'Bless',key:'v',radius:20,hint:'Say something; each mind decides whether to obey'},
  {id:'lightning',name:'Lightning',icon:'⚡',group:'Destroy',key:'l',radius:1.5,hint:'Strike a point'},
  {id:'fire',name:'Fire',icon:'🔥',group:'Destroy',key:'x',radius:2,paint:true,hint:'Set land burning (drag to spread)'},
  {id:'meteor',name:'Meteor',icon:'☄',group:'Destroy',key:'m',radius:6,hint:'Call down a meteor; leaves a crater'},
  {id:'plague',name:'Plague',icon:'🦠',group:'Destroy',key:'k',radius:4,hint:'Sicken people nearby'},
- {id:'war',name:'War',icon:'⚔',group:'Destroy',key:'w',radius:8,hint:'Drive the nearest kingdom to war with all'},
+ {id:'war',name:'War',icon:'⚔',group:'Destroy',key:'b',radius:8,hint:'Drive the nearest kingdom to war with all'},
  {id:'smite idol',name:'Smite idol',icon:'🗿',group:'Destroy',key:'o',radius:12,hint:'Break the shrine of a rival god'},
  {id:'water',name:'Water',icon:'🌊',group:'Terrain',key:'1',paint:true,hint:'Paint sea (brush size: [ ])'},
  {id:'land',name:'Land',icon:'🌱',group:'Terrain',key:'2',paint:true,hint:'Paint grassland'},
@@ -621,13 +667,13 @@ const TOOLDEF=[
  {id:'mountain',name:'Mountain',icon:'▲',group:'Terrain',key:'4',paint:true,hint:'Raise mountains'},
  {id:'inspect',name:'Inspect',icon:'🔍',group:'People',key:'i',radius:.35,hint:'Click a person to read their mind and life'}];
 const GROUPS=['Create','Bless','Destroy','Terrain','People','Time'],GCOL={Create:0x7fd0ff,Bless:0xffd77a,Destroy:0xff5a4a,Terrain:0x8fdc6a,People:0xffffff,Powers:0xc89bff};
-const RESERVED=new Set(['q','e','f',' ','[',']','-','=','?','/','escape']);
+const RESERVED=new Set([',','q','e','f','w','a','s','d','z','c','r','arrowup','arrowdown','arrowleft','arrowright','home',' ','[',']','-','=','?','/','escape']);
 const POW={};for(const d of TOOLDEF)POW[d.id]={...d,builtin:true};
 const tkey=()=>{const m={};for(const id in POW){const p=POW[id];if(p.hidden)continue;if(p.key)m[p.key.toLowerCase()]=id}return m};
 function toolRadius(id){const p=POW[id];if(!p)return 1;if(p.paint&&p.builtin)return brush;const r=typeof p.radius=='function'?p.radius(p.params||{}):p.radius;return r!=null?r:(p.params&&p.params.radius!=null?p.params.radius:brush)}
 function registerPower(def){if(!def||!def.id||typeof def.apply!='function')throw new Error('registerPower needs {id, apply}');
  const taken=tkey();let key=def.key&&String(def.key).toLowerCase();const orig=key;if(key&&(RESERVED.has(key)||(taken[key]&&taken[key]!==def.id)))key=null;
- if(!key){for(const c of 'zcvbnrdujp567890'){if(!taken[c]&&!RESERVED.has(c)){key=c;break}}}
+ if(!key){for(const c of 'jupvbn567890'){if(!taken[c]&&!RESERVED.has(c)){key=c;break}}}
  POW[def.id]={...def,key,remapped:orig&&orig!==key?orig:null,ext:true};buildPalette();return()=>{delete POW[def.id];if(tool===def.id)setTool('inspect');buildPalette()}}
 function setTool(id){if(!POW[id]||POW[id].hidden)return;tool=id;[...tb.querySelectorAll('[data-tool]')].forEach(b=>b.classList.toggle('on',b.dataset.tool==id));buildOpts()}
 function btn(icon,title,on,extra){const b=document.createElement('button');b.innerHTML=icon+(extra||'');b.title=title;b.onclick=on;return b}
@@ -640,11 +686,12 @@ function buildPalette(){tb.innerHTML='';const by={};for(const id in POW){const p
   if(g=='Destroy')B.appendChild(btn('🌋','Flood the whole world (asks first)',()=>confirmDlg('🌋 Flood the whole world? Everyone dies.').then(ok=>ok&&floodWorld())));
   if(g=='Terrain'){const s=document.createElement('input');s.type='range';s.min=1;s.max=10;s.value=brush;s.title='Brush radius ([ and ] keys)';s.id='brushR';s.oninput=()=>{brush=+s.value};B.appendChild(s)}
   if(g=='People'){B.appendChild(btn('🎥','Follow the selected person — key F',()=>sel?toggleFollow():toast('Select someone first (🔍 Inspect, then click a person)')));B.appendChild(btn('📖','Codex — every person, nation and invention — key /',()=>toggleCodex()))}
-  if(g=='Time'){pauseB=btn(paused?'▶':'⏸','Pause / resume — Space',()=>setPaused(!paused));B.appendChild(pauseB);B.appendChild(btn('⏪','Slower — key -',()=>setSpeed(-1)));spdLbl=document.createElement('span');spdLbl.className='spd';spdLbl.textContent='×'+speed;B.appendChild(spdLbl);B.appendChild(btn('⏩','Faster — key =',()=>setSpeed(1)))}
+  if(g=='Time'){pauseB=btn(paused?'▶':'⏸','Pause / resume — Space',()=>setPaused(!paused));B.appendChild(pauseB);B.appendChild(btn('⏪','Slower — key -',()=>setSpeed(-1)));spdLbl=document.createElement('span');spdLbl.className='spd';spdLbl.textContent='×'+speed;B.appendChild(spdLbl);B.appendChild(btn('⏩','Faster — key =',()=>setSpeed(1)));const ts=document.createElement('select');ts.id='tscale';ts.title='Time scale — intimate: about one day every 3 seconds, to watch single lives (key ,)';ts.style.cssText='background:#1b2130;color:#eee;border:1px solid #3a4256;border-radius:6px;height:32px;font:12px system-ui';ts.innerHTML=['intimate','normal','fast'].map(v=>`<option value=${v}${v==scale?' selected':''}>${v=='intimate'?'🕯 intimate':v=='normal'?'⏱ normal':'⚡ fast'}</option>`).join('');ts.onchange=()=>setScale(ts.value);ts.addEventListener('keydown',e=>e.stopPropagation());B.appendChild(ts)}
   if(g=='World'){B.appendChild(btn('💾','Save the world (browser storage)',save));B.appendChild(btn('📂','Load the saved world',load));B.appendChild(btn('⚙','Settings: faith and civilization tuning',()=>{const s=document.getElementById('set');s.style.display=s.style.display=='block'?'none':'block';buildSettings()}));B.appendChild(btn('✨','Unmake this world and make a new one (asks first)',()=>confirmDlg('✨ Unmake this world and make a new one?').then(ok=>{if(ok){chronicle('You unmade the world.');newWorld()}})));B.appendChild(btn('❓','Help and hotkeys — key ?',()=>showHelp(true)))}
   tb.appendChild(G)}}
 const SP=[.1,.25,.5,1,3,6];
 function setSpeed(d){let i=SP.indexOf(speed);if(i<0)i=1;speed=SP[Math.max(0,Math.min(SP.length-1,i+d))];if(spdLbl)spdLbl.textContent='×'+speed;if(paused)setPaused(false)}
+function setScale(v){if(!['intimate','normal','fast'].includes(v))return;scale=v;soulAcc.carry=0;const t=document.getElementById('tscale');if(t)t.value=v;if(paused)setPaused(false);toast(v=='intimate'?'🕯 Intimate time — about one day every 3 seconds':v=='fast'?'⚡ Fast time':'⏱ Normal time',true);uiTop()}
 function setPaused(v){paused=v;if(pauseB)pauseB.innerHTML=paused?'▶':'⏸';uiTop()}
 function toggleCodex(){const c=document.getElementById('cx');if(c.style.display=='flex')c.style.display='none';else openCodex()}
 // ---- power options strip (for plug-in powers with params) ----
@@ -675,12 +722,23 @@ function clampPanel(w){const r=w.getBoundingClientRect();if(r.bottom>innerHeight
 const $=id=>document.getElementById(id);
 const wWorld=mkPanel('world','World',[$('hud'),$('kd')]),wLog=mkPanel('log','Events',[$('log')]),wMM=mkPanel('mm','Map',[$('mm')]),wIns=mkPanel('ins','Inspector',[$('ins')]);if(!UIST.world&&innerWidth<1560){wWorld.classList.add('min');wWorld.querySelector('.ph button').textContent='▸'};
 addEventListener('resize',()=>[wWorld,wLog,wMM,wIns].forEach(clampPanel));
+const soulEl=document.createElement('div');soulEl.id='soulbox';soulEl.style.display='none';wIns.querySelector('.pb').appendChild(soulEl);let soulT=0,soulTh=0;
+const soulP=S&&SPN?SPN.createSoulPanel({S,el:soulEl,state:()=>SST,isFollowing:()=>follow,
+ follow:id=>{const p=byId.get(id);if(p&&sel!==p)sel=p;if(sel)toggleFollow()},go:id=>{const p=byId.get(id)||fallen.find(q=>q.id===id);if(p){stopFollow();flyTo(p.x,p.y,25)}},close:()=>deselect(),
+ changed:(id,r)=>{const p=byId.get(id);if(p){p.name=p.name.replace(r.from,r.to);J(p,`Renamed by the god: ${r.from} became ${r.to}.`)}chronicle(`You renamed ${r.from}: now ${r.to}.`)},
+ select:id=>openInspector(id,true)}):null;
+// one entry point for showing a person: selects them (if they walk the world) and renders the soul inspector
+function openInspector(id,fly){const p=byId.get(id)||fallen.find(q=>q.id===id);if(p&&sel!==p){if(follow)stopFollow();sel=p}if(p&&fly&&!p.dead)flyTo(p.x,p.y,Math.min(cam.alt,40));
+ if(soulP&&civ&&soulP.open(id)){soulT=soulTh=performance.now();soulEl.style.display='block';ins.style.display='none'}drawHUD()}
+document.getElementById('logb').addEventListener('click',e=>{const b=e.target.closest('[data-pid]');if(b)openInspector(+b.dataset.pid,true)});
+wIns.style.width='360px';
 // ---- top bar ----
 const topD=document.createElement('div');topD.id='top';document.body.appendChild(topD);
 function uiTop(){const alive=kings.filter(k=>!k.dead&&k.pop>0).length;let fa='';try{const G=mind.gods(),t=G.followers.true||0;fa=`${Math.round(t/Math.max(1,P.length)*100)}%`}catch(e){fa='—'}
  topD.innerHTML=`<span><span class=s>YEAR</span>${yr|0}</span>${civ?`<span><span class=s>ERA</span><span class=lk data-cx="history:tech">${civEra()}</span></span>`:''}<span><span class=s>PEOPLE</span>${P.length}</span><span><span class=s>NATIONS</span>${alive}</span><span title="Share of people who follow you, the true god"><span class=s>FAITH</span>${fa}</span><span style="cursor:pointer" title="Space pauses; - and = change speed" id=tps>${paused?'⏸ paused':'▶ ×'+speed}</span>`;
  const t=$('tps');if(t)t.onclick=()=>setPaused(!paused)}
 {const _dh=drawHUD;drawHUD=function(){_dh();uiTop();wIns.style.display=sel?'flex':'none'}}
+{const _dh=drawHUD;drawHUD=function(){const soul=!!(sel&&soulP&&civ&&soulP.id!=null&&byId.get(soulP.id)===sel||sel&&soulP&&civ&&sel.dead&&soulP.id===sel.id);_dh();if(soul){ins.style.display='none';soulEl.style.display='block';const now=performance.now();if(now-soulT>1000){soulT=now;const th=now-soulTh>4000;if(th)soulTh=now;if(!soulEl.contains(document.activeElement))soulP.refresh(th)}}else{soulEl.style.display='none';if(sel&&soulP&&civ&&soulP.id!==sel.id)openInspector(sel.id)}if(logTab=='pr'&&performance.now()-(drawHUD._pr||0)>1500){drawHUD._pr=performance.now();renderLog()}}}
 // ---- cursor ring on the globe ----
 const ringM=new THREE.Mesh(new THREE.RingGeometry(.9,1,72),new THREE.MeshBasicMaterial({color:0xffd77a,transparent:true,opacity:.85,depthTest:false,side:THREE.DoubleSide,fog:false}));ringM.renderOrder=10;ringM.visible=false;scene.add(ringM);
 const dotM=new THREE.Mesh(new THREE.CircleGeometry(1,24),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.9,depthTest:false,fog:false}));dotM.renderOrder=10;scene.add(dotM);
@@ -697,13 +755,13 @@ function uiFrame(rdt){const over=mouse.over&&!mouse.down&&!dlg.classList.contain
  for(const f of fxRings){if(f.t<=0){f.m.visible=false;continue}f.t-=rdt;const k=1-f.t/f.T;placeRing(f.m,f.x,f.y,Math.max(.5,f.r)*TILE*(.6+.6*k),2);f.m.material.opacity=.9*(1-k)}}
 cv.addEventListener('mouseenter',()=>mouse.over=true);cv.addEventListener('mouseleave',()=>{mouse.over=false;curL.style.display='none'});
 // ---- one entry point for every click on the globe ----
-function useTool(h,click){if(!h){if(click)toast('✕ Missed — that click was off the planet. Aim at the globe.');return}
+function useTool(h,click){if(!h){if(click&&tool=='inspect'&&sel){deselect();return}if(click)toast('✕ Missed — that click was off the planet. Aim at the globe.');return}
  const p=POW[tool]||{};if(click){pulse=1;ringFX(h.x,h.y,Math.max(1,toolRadius(tool)),GCOL[p.group]||GCOL.Powers,.9)}
  if(click&&p.builtin){const L=land(at(h.x,h.y)),R=toolRadius(tool);
   if((tool=='human'||tool=='tribe')&&!L){toast('✕ Nothing made — that is water. People need land.');return}
   if((tool=='heal'||tool=='plague')&&!near(h.x,h.y,R).length){toast(`✕ No one within reach to ${tool=='heal'?'heal':'sicken'} — zoom in or aim at people.`);return}
   if((tool=='war'||tool=='peace')&&!near(h.x,h.y,8).some(q=>q.k)){toast('✕ No kingdom here — aim at a town.');return}
-  if(tool=='inspect'){act(h.x,h.y,true);if(!sel)toast('No one there — zoom in and click right on a person.');return}}
+  if(tool=='inspect'){const had=sel;act(h.x,h.y,true);if(!sel){stopFollow();updFollowBtn()}if(!sel&&!had)toast('No one there — zoom in and click right on a person.');return}}
  act(h.x,h.y,click)}
 function runPower(p,x,y,click){const r=toolRadius(p.id),people=near(x,y,r),kingdom=(people.find(q=>q.k)||{}).k||null;const nation=civ&&V?(()=>{try{const ok=id=>id!=null&&id>=0&&civ.nations[id]&&civ.nations[id].alive?civ.nations[id]:null;const sx=x,sy=t2cY(y);let n=ok(V.nationAt(civ,sx,sy));const mp=civ.map;
   for(let rr=1;!n&&rr<=3;rr++)for(let j=-rr;j<=rr&&!n;j++)for(let i=-rr;i<=rr&&!n;i++)n=ok(V.nationAt(civ,(sx+i*mp.ts+TW)%TW,Math.max(0,Math.min(TH-1,sy+j*mp.tsy))));
@@ -733,23 +791,30 @@ let civSyncSoon=false;
 const helpD=document.createElement('div');helpD.id='help';document.body.appendChild(helpD);
 function showHelp(v){if(v){const keys=Object.values(POW).filter(p=>!p.hidden&&p.key).map(p=>`<tr><td><kbd>${p.key.toUpperCase()}</kbd></td><td>${p.icon} ${p.name}${p.remapped?` <span style=opacity:.6>(was ${p.remapped.toUpperCase()})</span>`:''}</td></tr>`).join('');
  helpD.innerHTML=`<div class=card><h2>👁 You are their one true god</h2><div style=opacity:.75>They have their own minds. You can feed them, heal them, speak to them, punish them — but belief is theirs to give.</div>
- <div class=cols style=margin-top:10px><div><b>Move</b><table><tr><td>Drag</td><td>orbit / pan</td></tr><tr><td>Wheel</td><td>zoom from orbit to the ground</td></tr><tr><td>Double-click</td><td>fly there</td></tr><tr><td>Right-drag, <kbd>Q</kbd> <kbd>E</kbd></td><td>turn</td></tr><tr><td><kbd>F</kbd></td><td>follow the selected person</td></tr></table>
+ <div class=cols style=margin-top:10px><div><b>Look down on them</b><table><tr><td>Wheel / two-finger scroll</td><td>zoom smoothly from orbit down to eye level (toward the cursor)</td></tr><tr><td>Pinch</td><td>zoom (trackpad or touch); two-finger twist turns</td></tr><tr><td>Drag (right, middle, or left with 🔍)</td><td>pan — let go mid-drag to glide</td></tr><tr><td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / arrows</td><td>pan</td></tr><tr><td><kbd>Q</kbd> <kbd>E</kbd></td><td>orbit (hold)</td></tr><tr><td><kbd>Z</kbd> <kbd>C</kbd>, Ctrl/Alt+drag</td><td>tilt (lower / higher); Ctrl+drag sideways also orbits</td></tr><tr><td><kbd>R</kbd></td><td>reset tilt and face north</td></tr><tr><td>Double-click</td><td>fly there</td></tr><tr><td><kbd>F</kbd></td><td>follow the selected person</td></tr><tr><td>Click empty ground (🔍)</td><td>deselect</td></tr><tr><td><kbd>,</kbd> or the 🕯/⏱/⚡ menu</td><td>time: intimate (≈1 day / 3 s) · normal · fast</td></tr><tr><td><kbd>Esc</kbd></td><td>close a dialog/codex first, then stop following, then deselect</td></tr></table>
+ <div style=opacity:.65;font-size:12px>The closer you come, the lower the view tilts — from a map to standing among them.</div>
  <b style=display:block;margin-top:8px>Act</b><table><tr><td>Pick a power</td><td>from the palette at the bottom (or its key)</td></tr><tr><td>Click the globe</td><td>use it — the ring shows its reach</td></tr><tr><td><kbd>[</kbd> <kbd>]</kbd></td><td>brush size for terrain</td></tr><tr><td><kbd>Space</kbd> <kbd>-</kbd> <kbd>=</kbd></td><td>pause, slower, faster</td></tr><tr><td><kbd>/</kbd> <kbd>?</kbd> <kbd>Esc</kbd></td><td>codex, this help, close</td></tr></table>
  <div style=margin-top:8px;font-size:12px;opacity:.75>Panels: drag a title bar to move it, ▾ to fold it, double-click the title to reset its place.</div></div><div><b>Power keys</b><table>${keys}</table></div></div>
  <div style=text-align:right;margin-top:10px><button class="btn x">Begin</button></div></div>`;helpD.style.display='flex';helpD.querySelector('.x').onclick=()=>showHelp(false)}else{helpD.style.display='none';try{localStorage.setItem('godbox-help-seen','1')}catch(e){}}}
 helpD.addEventListener('click',e=>{if(e.target===helpD)showHelp(false)});
 // ---- keys ----
 addEventListener('keydown',e=>{if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName))return;if(e.ctrlKey||e.metaKey||e.altKey)return;const k=e.key.toLowerCase();
- if(k=='escape'){if(dlg.classList.contains('open'))dlgClose(null);else if(helpD.style.display=='flex')showHelp(false);else if($('cx').style.display=='flex')$('cx').style.display='none';else{sel=null;follow=false}return}
- if(helpD.style.display=='flex'){if(k=='?')showHelp(false);return}
- if(k=='q'){cam.head-=.1;return}if(k=='e'){cam.head+=.1;return}if(k=='f'){if(sel)toggleFollow();else toast('Select someone first');return}
+ if(k=='escape'){CAMK.clear();if(dlg.classList.contains('open'))dlgClose(null);else if(helpD.style.display=='flex')showHelp(false);else if($('cx').style.display=='flex')$('cx').style.display='none';else if($('set').style.display&&$('set').style.display!='none')$('set').style.display='none';else if(follow)stopFollow();else if(sel)deselect();return}
+ if(helpD.style.display=='flex'||dlg.classList.contains('open')){if(k=='?')showHelp(false);return}
+ if(['w','a','s','d','q','e','z','c','arrowup','arrowdown','arrowleft','arrowright'].includes(k)){e.preventDefault();CAMK.add(k);return}
+ if(k==','){setScale(scale=='intimate'?'normal':scale=='normal'?'fast':'intimate');return}
+ if(k=='r'||k=='home'){cam.tb=0;cam.hv=0;cam.head=0;return}
+ if(k=='f'){if(sel)toggleFollow();else toast('Select someone first (🔍 Inspect, then click a person)');return}
  if(k==' '){e.preventDefault();setPaused(!paused);return}if(k=='-'||k=='_'){setSpeed(-1);return}if(k=='='||k=='+'){setSpeed(1);return}
  if(k=='['||k==']'){brush=Math.max(1,Math.min(10,brush+(k==']'?1:-1)));const b=$('brushR');if(b)b.value=brush;return}
  if(k=='?'){showHelp(true);return}if(k=='/'){e.preventDefault();toggleCodex();return}
  const id=tkey()[k];if(id){setTool(id)}});
+addEventListener('keyup',e=>CAMK.delete(e.key.toLowerCase()));addEventListener('blur',()=>CAMK.clear());
+// panels scroll on their own: wheel/touch inside a panel never reaches the world
+for(const ev of['wheel','touchmove'])document.addEventListener(ev,e=>{if(e.target!==cv&&e.target.closest&&e.target.closest('.pw,.pn,#help,#dlg,#tb,#popt'))e.stopPropagation()},{capture:false,passive:true});
 buildPalette();uiTop();
 if(GP)wirePowers();
 if(!localStorage.getItem('godbox-help-seen')&&!/[?&]nohelp/.test(location.search))showHelp(true);
 
-window.GB={registerPower,setTool,powers:()=>Object.values(POW).filter(p=>!p.hidden).map(p=>({id:p.id,name:p.name,group:p.group,key:p.key,ext:!!p.ext,remapped:p.remapped})),clickAt:(sx,sy)=>{mouse.x=sx;mouse.y=sy;useTool(pickSurface(sx,sy),true)},toast,ask,showHelp,get tool(){return tool},_lines:()=>[tradeL,powerL].map(L=>{const A=L.geometry.attributes.position.array,n=L.geometry.drawRange.count;let mn=1e9,mx=0,bad=0;for(let i=0;i<n;i++){const r=Math.hypot(A[i*3],A[i*3+1],A[i*3+2]);if(!isFinite(r))bad++;else{mn=Math.min(mn,r);mx=Math.max(mx,r)}}return{n,mn,mx,bad}}),_drawTest:l=>drawLines(tradeL,l,1.2),registerLayer:l=>{HK.layer=l;civRefresh();houseVer++;log('A civilization layer awakens.')},HK,openCodex,get civ(){return civ},get MW(){return MW},TW,TH,tidx,at,dist,near,get histAll(){return histAll},get fallen(){return fallen},get P(){return P},get kings(){return kings},get houses(){return houses},get yr(){return yr},cam,flyTo,act:(x,y,t)=>{const o=tool;tool=t;act(x,y,true);tool=o},setSpeed:s=>{speed=s},select:p=>{sel=p},toggleFollow,get fps(){return fps},level,mind,save,load,setSun:a=>{simT=a/.004},sunOver:(x,y,day)=>{sunLock=x==null?null:dirOf(x,y,new THREE.Vector3()).multiplyScalar(day?1:-1).add(new THREE.Vector3(0,.15,0)).normalize()},assets:AS.real,get deaths(){return deathCauses},get births(){return births},minds:mind.real};
+window.GB={registerPower,setTool,powers:()=>Object.values(POW).filter(p=>!p.hidden).map(p=>({id:p.id,name:p.name,group:p.group,key:p.key,ext:!!p.ext,remapped:p.remapped})),clickAt:(sx,sy)=>{mouse.x=sx;mouse.y=sy;useTool(pickSurface(sx,sy),true)},toast,ask,showHelp,get tool(){return tool},_lines:()=>[tradeL,powerL].map(L=>{const A=L.geometry.attributes.position.array,n=L.geometry.drawRange.count;let mn=1e9,mx=0,bad=0;for(let i=0;i<n;i++){const r=Math.hypot(A[i*3],A[i*3+1],A[i*3+2]);if(!isFinite(r))bad++;else{mn=Math.min(mn,r);mx=Math.max(mx,r)}}return{n,mn,mx,bad}}),_drawTest:l=>drawLines(tradeL,l,1.2),registerLayer:l=>{HK.layer=l;civRefresh();houseVer++;log('A civilization layer awakens.')},HK,openCodex,get civ(){return civ},get MW(){return MW},TW,TH,tidx,at,dist,near,get histAll(){return histAll},get fallen(){return fallen},get P(){return P},get kings(){return kings},get houses(){return houses},get yr(){return yr},cam,camCfg:CAMCFG,openInspector,soul:SST,soulModule:S,setScale,get scale(){return scale},get sel(){return sel},setCamera:o=>{Object.assign(CAMCFG,o||{});cam.za=Math.max(CAMCFG.zMin,Math.min(CAMCFG.zMax,cam.za))},deselect,flyTo,act:(x,y,t)=>{const o=tool;tool=t;act(x,y,true);tool=o},setSpeed:s=>{speed=s},select:p=>{sel=p},toggleFollow,get fps(){return fps},level,mind,save,load,setSun:a=>{simT=a/.004},sunOver:(x,y,day)=>{sunLock=x==null?null:dirOf(x,y,new THREE.Vector3()).multiplyScalar(day?1:-1).add(new THREE.Vector3(0,.15,0)).normalize()},assets:AS.real,get deaths(){return deathCauses},get births(){return births},minds:mind.real};
 </script></body></html>
