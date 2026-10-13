@@ -134,6 +134,9 @@ export function createMind(opts = {}) {
     wrath: 0, offering: null, preached: 0, priest: false,
     relT: null,                                   // last time bonds were aged (weekly pass)
     body: null, lifeMod: 0, fert: 1,              // what traits do to the body (set by godbox-soul syncBody)
+    lawHeard: null, bloodguilt: null,             // the god's law (godbox-law): when they heard it; whose blood is on them
+    avenge: null, avengeBy: null, motive: null,   // whom they hunt and why ('god' = your judgment, 'vow' = their own)
+    founded: null, blasphT: null,                 // the faith they founded (god id); last time they cursed your name
   };
 }
 
@@ -169,6 +172,62 @@ export function addGod(world, opts = {}) {
     color: opts.color || GCOL[(world.gods.length) % GCOL.length], discredited: 0 };
   world.gods.push(g); return g;
 }
+// A mortal founds a faith: a god grown from their own life (grief, defiance, hunger, war, love, the stars, the voices),
+// or — the proud and the mad — they proclaim themselves divine. The founder preaches it; it spreads like any other.
+const FAITHS = {
+  sorrow: { names: ['the Mother of Ashes', 'the Grey Keeper', 'She Who Holds the Dead'], creed: ['The dead are not gone; they wait.', 'Grief is prayer.', 'The sky-voice let them die. The Keeper keeps them.'] },
+  defiance: { names: ['the Unbowed', 'the Unkneeling', 'the Broken Chain'], creed: ['We kneel to no voice in the sky.', 'A god who stays silent is no god.', 'Our hands, our law.'] },
+  bread: { names: ['the Bread-Giver', 'the Full Granary', 'the Sheaf Mother'], creed: ['Whoever feeds us is god.', 'Share the loaf.', 'Hunger is the only sin.'] },
+  sword: { names: ['the Red Spear', 'the Iron Father', 'the Last Shield'], creed: ['The strong are blessed.', 'Blood answers blood.', 'Peace is for the conquered.'] },
+  love: { names: ['the Two Hearts', 'the Gentle Flame', 'the Open Hand'], creed: ['Love is the only law.', 'No one is a stranger.', 'The god of fear is no god of ours.'] },
+  stars: { names: ['the Hidden Light', 'the Star-Reader', 'the Turning Wheel'], creed: ['The heavens are a book; learn to read it.', 'Ask, and keep asking.', 'The voice is only a voice; the stars are law.'] },
+  voices: { names: ['the Many Voices', 'the Whisperer', 'the One Who Speaks in Me'], creed: ['I hear what you cannot.', 'The voices do not lie.', 'Listen to me, and you hear the god.'] },
+};
+function faithDomain(m) {
+  const mem = m.memories || [], T = m.traits;
+  if ((m.soulTraits || []).some((r) => r.id === 'madness' || r.id === 'voices')) return 'voices';
+  if ((m.wrath || 0) > 0.3 || mem.some((x) => /wrath|unanswered|cursed/.test(x.type))) return 'defiance';
+  if (mem.some((x) => x.type === 'grief')) return 'sorrow';
+  if (m.needs.hunger > 0.5) return 'bread';
+  if (m.enemyGroup != null || T.temper > 0.7) return 'sword';
+  if (T.curiosity > 0.7) return 'stars';
+  if (m.spouse != null && T.kindness > 0.6) return 'love';
+  return ['defiance', 'stars', 'love', 'sorrow'][m.seed % 4];
+}
+export function foundFaith(world, m, opts = {}) {
+  if (!m || !m.alive || m.founded) return null;
+  world.gods = world.gods || []; world.nextGodId = world.nextGodId || 1;
+  const dom = opts.domain && FAITHS[opts.domain] ? opts.domain : faithDomain(m), F = FAITHS[dom], k = m.seed + world.gods.length;
+  let id = 'm' + world.nextGodId++; while (world.gods.some((g) => g.id === id)) id = 'm' + world.nextGodId++;
+  const self = !!opts.self, first = m.name.split(' ')[0];
+  const name = opts.name || (self ? [`${first} the Undying`, `${first}, God-on-Earth`, `the Living ${first}`][k % 3] : F.names[k % F.names.length]);
+  const g = { id, name, kind: self ? 'godking' : 'cult', domain: self ? first : dom, followers: 0, color: GCOL[(world.gods.length + 3) % GCOL.length], discredited: 0,
+    manmade: true, founder: m.id, founded: opts.t ?? world.t, creed: self ? [`${first} is god, and walks among you.`, 'The sky-voice is a lie; I am here.', 'Kneel, and live.'] : F.creed.slice() };
+  world.gods.push(g);
+  m.founded = id; m.devotion = m.devotion || {}; m.devotion[id] = 1; m.preached = Math.max(m.preached || 0, 3); m.priest = true; m.goal = 'glory';
+  updateAllegiance(m, world, opts.t ?? world.t);
+  remember(m, self ? 'proclaimed myself a god' : 'founded a faith: ' + name, 1, opts.t ?? world.t, null, g.creed[0]);
+  emit(world, { type: 'faith', who: [m.id], d: { god: id, name, domain: g.domain, self } });
+  return g;
+}
+// a founder's death shakes the faith: a god-king's followers lose their god (more so if you struck them down);
+// a prophet killed by men may harden the cult into martyrs
+export function founderDied(world, founderId, killer, t = world.t) {
+  const g = (world.gods || []).find((x) => x.manmade && x.founder === founderId && !x.dead); if (!g) return null;
+  const byGod = killer === 'god';
+  for (const m of world.minds) {
+    if (!m.alive || !m.devotion || !(g.id in m.devotion)) continue;
+    const d = m.devotion[g.id], hard = m.traits.stubbornness;
+    const k = g.kind === 'godking' ? (byGod ? 0.25 : 0.45) : byGod ? 0.6 : killer != null ? 1.1 + hard * 0.1 : 0.85;
+    m.devotion[g.id] = clamp(d * k);
+    remember(m, g.kind === 'godking' ? `the living god ${g.name} died` : killer != null && !byGod ? `${g.name}'s prophet was martyred` : `${g.name}'s prophet is gone`, killer != null && !byGod && g.kind !== 'godking' ? 0.6 : -0.6, t);
+    if (byGod) faithChange(m, 0.04 * (1 - hard * 0.5), t);
+    updateAllegiance(m, world, t);
+  }
+  if (g.kind === 'godking') g.dead = true;
+  g.discredited = (g.discredited || 0) + (byGod ? 2 : g.kind === 'godking' ? 1 : 0);
+  return g;
+}
 export function removeGod(world, id) {
   const i = (world.gods || []).findIndex((g) => g.id === id); if (i < 0) return false;
   world.gods.splice(i, 1);
@@ -181,6 +240,8 @@ export function allegianceName(m, world) {
   if (m.allegiance == null) return 'no god';
   return godById(world, m.allegiance)?.name || 'a forgotten god';
 }
+// what happened, for the ledger (godbox-ledger) — the host sets world._hook; a broken hook never breaks the world
+function emit(world, e) { const h = world && world._hook; if (h) { try { h(e); } catch (err) { /* the book must not stop the world */ } } }
 function updateAllegiance(m, world, t) {
   const dv = m.devotion || (m.devotion = {});
   let bg = null, bv = 0;
@@ -196,6 +257,7 @@ function updateAllegiance(m, world, t) {
     m.allegiance = next;
     const nm = next === 'true' ? 'the true god' : next ? (godById(world, next)?.name || next) : null;
     remember(m, next === 'true' ? 'returned to the true god' : next ? 'turned to ' + nm : 'lost all gods', 0.7, t || 0, null, nm);
+    emit(world, { type: 'conversion', who: [m.id], d: { from: prev ?? null, to: next ?? null } });
   }
 }
 function addDev(m, id, d) { if (id == null || id === 'true') return; const dv = m.devotion || (m.devotion = {}); dv[id] = clamp((dv[id] || 0) + d); if (dv[id] < 0.01) delete dv[id]; }
@@ -379,7 +441,12 @@ export function notify(target, event, world) {
       if (r && (r.love + r.friend) > 0.3) {
         remember(m, 'grief', -0.9 * w, t, event.about); n.belonging = clamp(n.belonging + 0.3);
         if (m.spouse === event.about) m.spouse = null;
-        if (event.killer != null) { const g = rel(m, event.killer); g.grudge = clamp(g.grudge + 0.7); m.goal = 'revenge'; }
+        if (event.killer != null && event.killer !== 'god') {
+          const g = rel(m, event.killer); g.grudge = clamp(g.grudge + 0.7); m.goal = 'revenge';
+          const T = m.traits;
+          if (m.avenge == null && T.temper + T.courage > 1.1 && T.kindness < 0.6 && m.age >= 16) { m.avenge = event.killer; m.avengeBy = 'vow'; }
+          emit(world, { type: 'vow', who: [m.id], about: event.killer, d: { for: event.about, hunt: m.avenge === event.killer } });
+        }
         if (m.prayer) faithChange(m, -0.1, t);
       }
       delete m.relations[event.about];
@@ -504,6 +571,9 @@ export function tick(world, ws = {}, dt = 0.1, maxStep = MAX_STEP) {
     }
     const nb = ws.nearby ? ws.nearby(m, CELL) : gridNearby(grid, CELL, m, CAP, rng);
     let bestMate = null, bestMateS = 0.15, foe = null, foeS = 0.35, friendS = 0;
+    const myZeal = m.allegiance === 'true' ? m.faith : m.allegiance ? (m.devotion?.[m.allegiance] || 0) : 0;
+    const zealHate = myZeal > 0.7 && T.temper > 0.6 && T.kindness < 0.4 ? (myZeal - 0.55) * (T.temper - 0.3) * (1 - T.kindness) * 3 : 0;
+    m.motive = null;
     let socTrue = 0, socW = 0, socG = null, socGV = 0; const soc = hasGods ? _soc : null; if (soc) soc.clear();
     for (let j = 0, L = Math.min(nb.length, CAP); j < L; j++) {
       const o = nb[j]; if (!o.alive) continue;
@@ -513,6 +583,10 @@ export function tick(world, ws = {}, dt = 0.1, maxStep = MAX_STEP) {
         const fs = r.grudge + r.rival * 0.5 + (m.enemyGroup != null && o.group === m.enemyGroup ? 0.4 : 0);
         if (fs > foeS) { foeS = fs; foe = o; }
       } else if (m.enemyGroup != null && o.group === m.enemyGroup && 0.4 > foeS) { foeS = 0.4; foe = o; }
+      if (zealHate > 0 && o.allegiance !== m.allegiance && (o.priest || o.action === 'preach' || (o.blasphT != null && t - o.blasphT < 30 && m.allegiance === 'true'))) {
+        const zs = zealHate * (o.priest ? 1.2 : 1) * (o.founded ? 1.4 : 1); // the zealous turn on the preachers of other gods
+        if (zs > foeS) { foeS = zs; foe = o; m.motive = 'zeal'; }
+      }
       if (o.sex !== m.sex && !m.spouse && !o.spouse && !(r && r.kin) && m.age > 16 && o.age > 16 && Math.abs(m.age - o.age) < 15) {
         const s = (r ? r.love : 0) + 0.2 * (1 - Math.abs(T.kindness - o.traits.kindness)) + rng() * 0.1;
         if (s > bestMateS) { bestMateS = s; bestMate = o; }
@@ -600,8 +674,13 @@ export function tick(world, ws = {}, dt = 0.1, maxStep = MAX_STEP) {
           if (rng() < Math.min(0.9, (T.temper + OT.temper) * (1 - fit) * 0.18 * span)) { // hot tempers and bad fits quarrel
             r.grudge = clamp(r.grudge + 0.12); r2.grudge = clamp(r2.grudge + 0.08); r.friend *= 0.7; r2.friend *= 0.7; remember(m, 'quarrel', -0.3, t, o.id);
             if (o.id === m.spouse) { r.love *= 0.9; r2.love *= 0.9; }
+            if (r.grudge >= 0.4 && r.grudge - 0.12 < 0.4) emit(world, { type: 'grudge', who: [m.id], about: o.id, d: { why: 'a quarrel' } });
           }
           n.belonging = clamp(n.belonging - 0.2);
+          if (o.allegiance === 'true' && o.faith > 0.5 && m.allegiance !== 'true' && (m.wrath > 0.2 || T.piety < 0.3 || m.founded) && (m.blasphT == null || t - m.blasphT > 30) && rng() < 0.08 * (1.2 - T.kindness)) {
+            m.blasphT = t; const g = rel(o, m.id); g.grudge = clamp(g.grudge + 0.1 * o.faith);
+            emit(world, { type: 'blasphemy', who: [m.id], about: o.id });
+          }
         }
         break;
       }
@@ -614,6 +693,8 @@ export function tick(world, ws = {}, dt = 0.1, maxStep = MAX_STEP) {
       case 'feud': { target = foe.id; const r = rel(foe, m.id); r.grudge = clamp(r.grudge + 0.15); rel(m, foe.id).grudge += 0.02; break; }
       case 'fight': {
         target = foe.id; const r = rel(foe, m.id); r.grudge = clamp(r.grudge + 0.4);
+        if (!m.motive) m.motive = m.goal === 'revenge' ? 'revenge' : m.enemyGroup != null && foe.group === m.enemyGroup ? 'war' : 'grudge';
+        emit(world, { type: 'attack', who: [m.id], about: foe.id, d: { why: m.motive } });
         n.safety = clamp(n.safety + 0.2); remember(foe, 'attacked', -0.7, t, m.id);
         const g = rel(m, foe.id); g.grudge = clamp(g.grudge * 0.6); if (m.goal === 'revenge' && rng() < 0.3) m.goal = 'peace';
         break;
@@ -628,7 +709,9 @@ export function tick(world, ws = {}, dt = 0.1, maxStep = MAX_STEP) {
         m.offering = { god: rival, need, t }; n.meaning = clamp(n.meaning - 0.1 * rdv); n.hunger = clamp(n.hunger + 0.03); target = rival; break;
       }
       case 'preach': {
-        const god = m.allegiance; target = god; m.preached++; if (m.preached >= 3) m.priest = true; n.meaning = clamp(n.meaning - 0.15);
+        const god = m.allegiance; target = god; m.preached++; n.meaning = clamp(n.meaning - 0.15);
+        if (m.preached >= 3 && !m.priest) { m.priest = true; emit(world, { type: 'prophet', who: [m.id], d: { god } }); }
+        if (god !== 'true' && (m.blasphT == null || t - m.blasphT > 60) && rng() < 0.25 * (1.2 - T.kindness)) { m.blasphT = t; emit(world, { type: 'blasphemy', who: [m.id], d: { sermon: true } }); }
         for (let j = 0, L = Math.min(nb.length, 4); j < L; j++) {
           const o = nb[(rng() * Math.min(nb.length, CAP)) | 0]; if (!o || !o.alive || o === m) continue;
           const sway = TUNING.preachSway * (1 - o.traits.stubbornness) * (0.5 + zeal) * span;
@@ -642,6 +725,11 @@ export function tick(world, ws = {}, dt = 0.1, maxStep = MAX_STEP) {
       }
       case 'migrate': n.safety = clamp(n.safety - 0.1); m.home = null; remember(m, 'left home', 0.4, t); break;
       case 'found': m.home = { x: m.x, y: m.y }; m.group = world.nextGroup = (world.nextGroup || 100) + 1; n.meaning = 0; remember(m, 'founded a settlement', 1, t); break;
+    }
+    if (!m.founded && m.age >= 22 && (m.faith < 0.3 || m.faithState === 'apostate') && hasGods) {
+      const charisma = (T.sociability + T.ambition) / 2, mad = (m.soulTraits || []).some((r) => r.id === 'madness' || r.id === 'voices');
+      const p = (charisma - 0.55) * (0.4 + n.meaning + (m.wrath || 0) + (mad ? 1 : 0)) * 0.00006 * span;
+      if (p > 0 && rng() < p && world.gods.filter((g) => g.manmade && !g.dead).length < 8) foundFaith(world, m, { self: mad && T.ambition > 0.7, t });
     }
     m.action = act; m.target = target;
     if (m.faithLog.length === 0 || t - (m._flt || 0) >= 1) { m.faithLog.push(+m.faith.toFixed(3)); m._flt = t; if (m.faithLog.length > 120) m.faithLog.shift(); }
