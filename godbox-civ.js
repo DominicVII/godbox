@@ -267,7 +267,7 @@ function makeNation(civ, { tile, year, lang, cult, parent, gov, color, freqs }) 
 // brothers and sisters. Everyone in the house is bound as kin.
 function foundHousehold(civ, grp) {
   const a = grp.find((m) => m.sex === 'm' && m.age > 18 && m.spouse == null), b = grp.find((m) => m.sex === 'f' && m.age > 18 && m.spouse == null && (!a || Math.abs(m.age - a.age) < 15));
-  if (a && b) { a.spouse = b.id; b.spouse = a.id; for (const [x, y] of [[a, b], [b, a]]) { const r = (x.relations[y.id] = x.relations[y.id] || { love: 0, friend: 0, grudge: 0, rival: 0 }); r.love = 0.75 + R(civ) * 0.25; r.friend = 0.5; } }
+  if (a && b) { a.spouse = b.id; b.spouse = a.id; for (const [x, y] of [[a, b], [b, a]]) { const r = (x.relations[y.id] = x.relations[y.id] || { love: 0, friend: 0, grudge: 0, rival: 0 }); r.love = 0.75 + R(civ) * 0.25; r.friend = 0.5; marRec(civ, x.id, y.id, 'founding'); } }
   const kids = a && b ? grp.filter((m) => m !== a && m !== b && m.age <= Math.min(a.age, b.age) - 16) : [];
   for (const k of kids) {
     const pk = civ.people[k.id], pa = civ.people[a.id], pb = civ.people[b.id];
@@ -276,22 +276,60 @@ function foundHousehold(civ, grp) {
   }
   for (let i = 0; i < kids.length; i++) for (let j = i + 1; j < kids.length; j++) M.bindKin(kids[i], kids[j], 0.45, 0.45);
   for (const m of grp) if (m !== a && m !== b && !kids.includes(m)) for (const h of [a, b, grp[0]]) if (h && h !== m) { M.bindKin(m, h, 0.4, 0.4); break; }
+  // everyone under one roof is family: no one in a founding house may be wed to another of it (the couple aside)
+  for (let i = 0; i < grp.length; i++) for (let j = i + 1; j < grp.length; j++) { const x = grp[i], y = grp[j]; if (a && b && ((x === a && y === b) || (x === b && y === a))) continue; M.bindKin(x, y, 0.35, 0.35); }
 }
 function kin(civ, world, x, y) {
   if (x.relations[y.id]?.kin) return true;
   const a = civ.people[x.id], b = civ.people[y.id]; if (!a || !b) return false;
   return a.par.includes(y.id) || b.par.includes(x.id) || a.par.some((i) => b.par.includes(i));
 }
+// How two people are related by blood: 'parent' (a is b's parent), 'child', 'sibling', 'kin' (bound as family), or null
+export function related(civ, world, aId, bId) {
+  const a = civ.people[aId], b = civ.people[bId];
+  if (a && b) { if (b.par.includes(aId)) return 'parent'; if (a.par.includes(bId)) return 'child'; if (a.par.length && a.par.some((i) => b.par.includes(i))) return 'sibling'; }
+  const m = world.byId.get(aId); return m && m.relations[bId] && m.relations[bId].kin ? 'kin' : null;
+}
+
+// ---------- marriage ----------
+// Each person keeps their marriages: p.mar = [{to, y, how, end?, endHow?}]. how: founding | courtship | love | arranged |
+// glad | god | decree. endHow: widowed | parted | death. p.wed is the year of the latest wedding.
+function marRec(civ, id, to, how) { const p = civ.people[id]; if (!p) return; (p.mar || (p.mar = [])).push({ to, y: civ.year, how }); p.wed = civ.year; }
+function marEnd(civ, id, to, how) {
+  const p = civ.people[id], e = p && p.mar && [...p.mar].reverse().find((x) => x.to === to && x.end == null);
+  if (e) { e.end = civ.year; e.endHow = how; }
+}
+// Wed two minds: spouse links, bonds, memory and the record. Feelings beyond that (joy, resentment, who is glad) are the
+// caller's business (godbox-match.js). o: {how, love:[la, lb] (floor of love each feels), mem:[{type?, weight, text}, ...]}
+export function marry(civ, world, aId, bId, o = {}) {
+  const a = world.byId.get(aId), b = world.byId.get(bId);
+  if (!a || !b || !a.alive || !b.alive || a === b) return false;
+  const how = o.how || 'arranged';
+  a.spouse = b.id; b.spouse = a.id;
+  [[a, b, 0], [b, a, 1]].forEach(([x, y, i]) => {
+    const r = (x.relations[y.id] = x.relations[y.id] || { love: 0, friend: 0, grudge: 0, rival: 0 }), m = o.mem && o.mem[i];
+    r.love = Math.max(r.love, o.love ? o.love[i] : how === 'love' ? 0.8 : 0.3); r.friend = Math.max(r.friend, 0.25); r.grudge *= 0.3;
+    M.remember(x, (m && m.type) || 'married', m ? m.weight : how === 'love' ? 1 : 0.6, world.t, y.id, m ? m.text : how === 'love' ? null : 'an arranged match');
+    x.needs.belonging = 0;
+    marRec(civ, x.id, y.id, how);
+  });
+  return true;
+}
 // A wedding: a love match, or one the families arrange (love may grow later). Both remember the day.
-function wed(civ, world, x, y, love) {
-  x.spouse = y.id; y.spouse = x.id;
-  for (const [p, q] of [[x, y], [y, x]]) {
-    const r = (p.relations[q.id] = p.relations[q.id] || { love: 0, friend: 0, grudge: 0, rival: 0 });
-    r.love = Math.max(r.love, love ? 0.8 : 0.3); r.friend = Math.max(r.friend, 0.25); r.grudge *= 0.3;
-    M.remember(p, 'married', love ? 1 : 0.6, world.t, q.id, love ? null : 'an arranged match');
-    p.needs.belonging = 0;
-    if (civ.people[p.id]) civ.people[p.id].wed = civ.year;
-  }
+function wed(civ, world, x, y, love) { marry(civ, world, x.id, y.id, { how: love ? 'love' : 'arranged' }); }
+// End a marriage (not by death): returns the former spouse's mind
+export function part(civ, world, aId, how = 'parted') {
+  const a = world.byId.get(aId); if (!a || a.spouse == null) return null;
+  const bId = a.spouse, b = world.byId.get(bId); a.spouse = null; if (b && b.spouse === a.id) b.spouse = null;
+  marEnd(civ, a.id, bId, how); marEnd(civ, bId, a.id, how);
+  return b;
+}
+// A child for a couple (by the god's gift): the woman bears, else the younger of the two. Returns the child's mind.
+export function bear(civ, world, aId, bId) {
+  const a = world.byId.get(aId), b = world.byId.get(bId); if (!a || !b || !a.alive || !b.alive) return null;
+  const [mm, dm] = a.sex === 'f' && b.sex !== 'f' ? [a, b] : b.sex === 'f' && a.sex !== 'f' ? [b, a] : a.age <= b.age ? [a, b] : [b, a];
+  const mp = civ.people[mm.id], dp = civ.people[dm.id], n = mp && civ.nations[mp.nat]; if (!mp || !dp || !n) return null;
+  return birth(civ, world, n, mp, mm, dp, dm);
 }
 // The founder of a new house: a person the god shaped from the dust, or anyone who has none.
 export function foundHouse(civ, id, legend) {
@@ -373,7 +411,10 @@ export function step(civ, world, dt, opts = {}) {
 // ---------- main tick ----------
 export function tickCiv(civ, world, dt = 1, actions) {
   civ._ev = []; civ.t += dt;
-  if (actions) for (const a of actions) if ((a.action === 'fight' || a.action === 'feud') && a.target != null) feud(civ, world, a.id, a.target, a.action === 'fight');
+  if (actions) for (const a of actions) {
+    if ((a.action === 'fight' || a.action === 'feud') && a.target != null) feud(civ, world, a.id, a.target, a.action === 'fight');
+    else if (a.action === 'marry' && a.target != null) for (const [x, y] of [[a.id, a.target], [a.target, a.id]]) { const p = civ.people[x]; if (p && !(p.mar || []).some((e) => e.to === y && e.end == null)) marRec(civ, x, y, 'courtship'); }
+  }
   while (civ.t >= civ.nextMonth) { civ.nextMonth += MONTH; monthly(civ, world); }
   while (civ.t >= civ.nextYear) { civ.nextYear += YEAR; while (civ.phase < PHASES.length) PHASES[civ.phase++](civ, world); civ.year++; civ.phase = 0; }
   if (civ.phase < PHASES.length) PHASES[civ.phase++](civ, world);
@@ -703,6 +744,7 @@ function kill(civ, world, p, m, cause, killer) {
   for (const pid of p.par) { const km = world.byId.get(pid); if (km && km.alive) rel.push(km); }
   if (rel.length) M.notify(rel, { type: 'death', about: p.id, killer }, world);
   if (sp && sp.spouse === m.id) sp.spouse = null;
+  if (sp) { marEnd(civ, sp.id, p.id, 'widowed'); marEnd(civ, p.id, sp.id, 'death'); }
   const heirs = p.kids.map((k) => civ.people[k]).filter((k) => k && k.died == null);
   const n = civ.nations[p.nat];
   if (heirs.length) for (const h of heirs) { h.w += p.w / heirs.length; h.coins += p.coins / heirs.length; }
@@ -724,7 +766,7 @@ function demography(civ, world, L) {
     chooseJob(civ, n, p, m, m.age === 15 || m.age === 69 || (p.job === 'child' && m.age >= 15));
     if (m.sex === 'f' && m.age >= 18 && m.age <= 44 && m.spouse != null) {
       const dad = world.byId.get(m.spouse), dp = dad && civ.people[dad.id];
-      if (dad && dad.alive && dp && R(civ) < TUNING.birth * cap * (0.4 + 0.6 * p.fed) * (m.fert ?? 1) * (dad.fert ?? 1)) birth(civ, world, n, p, m, dp, dad);
+      if (dad && dad.alive && dp && dad.sex !== m.sex && R(civ) < TUNING.birth * cap * (0.4 + 0.6 * p.fed) * (m.fert ?? 1) * (dad.fert ?? 1)) birth(civ, world, n, p, m, dp, dad);
     }
   }
   if (civ.year % 2 === 0) {   // matchmaking for adults the minds left single: couples already in love first, then matches the families arrange
@@ -763,6 +805,7 @@ function birth(civ, world, n, mp, mm, dp, dm) {
     if (fam.heroes.length) child.memories.push({ type: 'legend: ' + fam.heroes[fam.heroes.length - 1].replace(/^-?\d+: /, ''), weight: 0.7, t: world.t });
     for (const fid in fam.feuds) fam.feuds[fid] *= 0.97;
   }
+  return child;
 }
 function territory(civ, world, L) {
   const m = civ.map, NT = m.terr.length, own = m.own;

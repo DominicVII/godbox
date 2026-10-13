@@ -261,14 +261,28 @@ const MOODW = (v) => (v > 0.75 ? 'joyful' : v > 0.58 ? 'content' : v > 0.42 ? 's
 function topNeed(m) { let k = 'meaning', v = -1; for (const n in m.needs) if (m.needs[n] > v) { v = m.needs[n]; k = n; } return [k, v]; }
 function strongestMem(m) { return (m.memories || []).slice().sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight))[0] || null; }
 
+// the one they hope to marry: their strongest love among the unwed (not kin)
+function longing(state, m) {
+  if (m.spouse != null || m.age < 16) return null;
+  let best = null, bv = 0.45;
+  for (const k in m.relations) { const r = m.relations[k]; if (r.love <= bv || r.kin) continue; const o = mindOf(state, +k); if (!o || !o.alive || o.spouse != null || o.age < 16) continue; bv = r.love; best = o; }
+  return best;
+}
 function thought(state, m) {
   const [need, nv] = topNeed(m), mem = strongestMem(m), k = Math.floor((state.world?.t || 0) * 2);
   const parts = [];
-  if (m.prayer) parts.push(`God, I need ${m.prayer.need === 'hunger' ? 'food' : m.prayer.need === 'safety' ? 'protection' : m.prayer.need === 'belonging' ? 'someone' : m.prayer.need}. Are you listening?`);
+  const lo = m.prayer && m.prayer.need === 'belonging' ? longing(state, m) : null;
+  if (lo) parts.push(`God, I love ${nameOfId(state, lo.id).split(' ')[0]}. Let me wed ${pron(lo).o}. Are you listening?`);
+  else if (m.prayer) parts.push(`God, I need ${m.prayer.need === 'hunger' ? 'food' : m.prayer.need === 'safety' ? 'protection' : m.prayer.need === 'belonging' ? 'someone' : m.prayer.need}. Are you listening?`);
   else if (nv > 0.45) parts.push(pickH(NEED_THINK[need] || NEED_THINK.meaning, m.id, k));
   if (mem) {
     const who = mem.about != null ? nameOfId(state, mem.about).split(' ')[0] : null;
-    const tx = /grief/.test(mem.type) ? `I still see ${who || 'them'} in my dreams.` : /married/.test(mem.type) ? `${who || 'My love'} — the best day of my life.` :
+    const so = mem.about != null ? mindOf(state, mem.about) : null, sp = pron(so);
+    const tx = /grief/.test(mem.type) ? `I still see ${who || 'them'} in my dreams.` : /^married$/.test(mem.type) ? (/match the god made|arranged|decree/.test(mem.text || '') ? `${who || 'My spouse'} and I were matched. I am learning to love ${sp.o}.` : `${who || 'My love'} — the best day of my life.`) :
+      /against my will/.test(mem.type) ? `They gave me to ${who || 'a stranger'} against my will. I have not forgiven it.` : /refused the god's match/.test(mem.type) ? `I would not be wed to ${who || 'them'}, not even for a god.` : /^was refused$/.test(mem.type) ? `${who || 'They'} would not have me.` :
+      /^lost .+ to /.test(mem.type) ? `I lost ${who || 'them'} to another. It still stings.` : /parted from the one I love/.test(mem.type) ? `They took ${who || 'my love'} from me. The god's will, they say.` : /^parted$/.test(mem.type) ? `${who || 'My spouse'} and I are parted. Perhaps it is for the best.` :
+      /my parents were parted/.test(mem.type) ? 'My parents were parted. I do not understand why.' : /a child, the gift/.test(mem.type) ? `Little ${who || 'one'} — the god's own gift. I will never forget it.` : /^made peace$/.test(mem.type) ? `${who || 'We'} and I made peace at last.` :
+      /refused the god's peace/.test(mem.type) ? `I will not make peace with ${who || 'them'}. Not for anyone.` : /would not make peace with me/.test(mem.type) ? `${who || 'They'} would not make peace with me. Perhaps in time.` : /sudden warmth/.test(mem.type) ? `Something has changed. Every time I see ${who || 'them'}, my heart...` : /old warmth return/.test(mem.type) ? `I remember why I married ${who || 'them'}.` :
       /prayer answered/.test(mem.type) ? 'The god answered me once. I have not forgotten.' : /unanswered/.test(mem.type) ? 'I begged and the sky said nothing.' :
       /renamed/.test(mem.type) ? 'I still turn my head when someone calls my old name.' : /touched by god/.test(mem.type) ? (() => { const g = TRAITS.find((x) => x.name === mem.type.split(': ')[1]); return g ? `Since the god touched me... ${feels(m, g.id)}` : 'Since the god touched me I feel changed.'; })() :
       /cursed/.test(mem.type) ? 'Why did the god mark me? What did I do?' : /miracle/.test(mem.type) ? 'I saw the sky open. Nothing is the same.' :
@@ -326,7 +340,10 @@ function family(state, m, p) {
   const grandparents = []; for (const pp of parents) for (const [i, g] of (personOf(state, pp.id)?.par || []).entries()) grandparents.push(node(g, i ? 'grandmother' : 'grandfather'));
   const children = (p?.kids || []).map((k) => node(k, personOf(state, k)?.sex === 'f' ? 'daughter' : 'son'));
   let spouse = m.spouse != null ? node(m.spouse, 'spouse') : null;
-  return { house: p ? state.civ.families?.[p.fam]?.name || null : null, houseId: p?.fam ?? null, parents, grandparents, siblings, spouse, children };
+  const mar = (p?.mar || []), last = mar[mar.length - 1];
+  const marriages = mar.map((e) => ({ id: e.to, name: nameOfId(state, e.to), alive: aliveOf(state, e.to), y: e.y, how: e.how, end: e.end ?? null, endHow: e.endHow ?? null }));
+  const status = m.age < 16 ? 'child' : m.spouse != null ? 'married' : last && last.end != null ? (last.endHow === 'widowed' ? 'widowed' : 'parted') : 'single';
+  return { house: p ? state.civ.families?.[p.fam]?.name || null : null, houseId: p?.fam ?? null, parents, grandparents, siblings, spouse, children, marriages, status };
 }
 function relationships(state, m) {
   const out = { friends: [], rivals: [], loves: [], grudges: [] };
@@ -347,7 +364,16 @@ function timeline(state, m, p) {
   const pr = pron(m);
   ev.push({ year: born, type: 'birth', text: `Born${p && p.par.length ? ' to ' + p.par.map((i) => nameOfId(state, i)).join(' and ') : ''}${p ? ' in ' + (civ.nations[p.nat]?.name || 'the wilds') : ''}.` });
   for (const k of p?.kids || []) { const c = personOf(state, k); if (c) { ev.push({ year: c.born, type: 'child', id: k, text: `A ${c.sex === 'f' ? 'daughter' : 'son'}, ${nameOfId(state, k)}, was born.` }); if (c.died != null) ev.push({ year: c.died, type: 'loss', id: k, text: `Lost ${pr.p} child ${nameOfId(state, k)} (${c.cause || 'unknown'}).`, feeling: 'grief' }); } }
-  if (m.spouse != null) { const sp = personOf(state, m.spouse); const mar = (m.memories || []).find((x) => x.type === 'married'); ev.push({ year: p?.wed ?? (mar ? Math.floor(mar.t / YEAR) : Math.max(born + 18, (p?.kids?.length ? personOf(state, p.kids[0])?.born - 1 : born + 20))), type: 'marriage', id: m.spouse, text: `Married ${nameOfId(state, m.spouse)}${mar?.text ? ' (' + mar.text + ')' : ''}.` }); if (sp && sp.died != null) ev.push({ year: sp.died, type: 'loss', id: m.spouse, text: `Widowed: ${nameOfId(state, m.spouse)} died (${sp.cause}).`, feeling: 'grief' }); }
+  const HOW = { love: ', for love, with the god\'s blessing', god: ', a match the god made', decree: ', by the god\'s decree', arranged: ', a match the families made' };
+  let covered = false;
+  for (const e of p?.mar || []) {
+    const who = nameOfId(state, e.to), sp = personOf(state, e.to);
+    ev.push({ year: e.y, type: 'marriage', id: e.to, text: `Married ${who}${HOW[e.how] || ''}.` });
+    if (e.end != null && e.endHow === 'widowed') ev.push({ year: e.end, type: 'loss', id: e.to, text: `Widowed: ${who} died${sp?.cause ? ' (' + sp.cause + ')' : ''}.`, feeling: 'grief' });
+    else if (e.end != null && e.endHow === 'parted') ev.push({ year: e.end, type: 'parting', id: e.to, text: `Parted from ${who}.` });
+    if (e.end == null && e.to === m.spouse) covered = true;
+  }
+  if (m.spouse != null && !covered) { const sp = personOf(state, m.spouse); const mar = (m.memories || []).find((x) => x.type === 'married'); ev.push({ year: p?.wed ?? (mar ? Math.floor(mar.t / YEAR) : Math.max(born + 18, (p?.kids?.length ? personOf(state, p.kids[0])?.born - 1 : born + 20))), type: 'marriage', id: m.spouse, text: `Married ${nameOfId(state, m.spouse)}${mar?.text ? ' (' + mar.text + ')' : ''}.` }); if (sp && sp.died != null) ev.push({ year: sp.died, type: 'loss', id: m.spouse, text: `Widowed: ${nameOfId(state, m.spouse)} died (${sp.cause}).`, feeling: 'grief' }); }
   for (const pid of p?.par || []) { const q = personOf(state, pid); if (q && q.died != null && q.died >= born) ev.push({ year: q.died, type: 'loss', id: pid, text: `${q.sex === 'f' ? 'Mother' : 'Father'} ${nameOfId(state, pid)} died (${q.cause}).`, feeling: 'grief' }); }
   if (civ) {
     const end = died ?? civ.year, faith = m.faith;
@@ -378,13 +404,15 @@ function beliefs(state, m) {
     allegiance: m.allegiance === 'true' ? 'the true god' : g ? g.name : 'none',
     rivalGod: g ? { id: g.id, name: g.name, kind: g.kind, domain: g.domain, devotion: r3(m.devotion?.[rv] || 0) } : null,
     devotions: Object.entries(m.devotion || {}).map(([id, v]) => ({ id, name: godNm(state, id) || id, devotion: r3(v) })),
-    prayer: m.prayer ? { need: m.prayer.need, since: r3(m.prayer.t), text: prayerText(m) } : null,
+    prayer: m.prayer ? { need: m.prayer.need, since: r3(m.prayer.t), text: prayerText(m, state) } : null,
     lastAnswered: r3(m.lastAnswered || 0), unansweredPrayers: m.silence || 0, doubts,
     faithHistory: (m.faithLog || []).slice(-20).map(r3),
   };
 }
-function prayerText(m) {
+function prayerText(m, state) {
   const n = m.prayer?.need; const k = m.id;
+  const lo = n === 'belonging' && state ? longing(state, m) : null; // one who loves an unwed soul prays to wed them
+  if (lo) return pickH([`Let me wed ${nameOfId(state, lo.id).split(' ')[0]}.`, `Give me ${nameOfId(state, lo.id).split(' ')[0]} for my own.`, `Bless my love for ${nameOfId(state, lo.id).split(' ')[0]}.`], k, n);
   const P = { hunger: ['Give us bread, Lord.', 'Let the harvest come in.', 'Feed my children.'], safety: ['Shield us from the raiders.', 'Keep the walls standing.', 'Let my family sleep safe.'],
     rest: ['Grant me rest.', 'Ease my aching back.'], belonging: ['Send me someone to love.', 'Do not let me die alone.', 'Bring my kin home.'], meaning: ['Show me why I am here.', 'Give me a sign.', 'Speak to me, please.'] };
   return pickH(P[n] || P.meaning, k, n);
@@ -444,7 +472,7 @@ export function inspectPerson(state, personId) {
 // ---------- prayers feed ----------
 export function recentPrayers(state, n = 10) {
   const out = [];
-  for (const m of state.world?.minds || []) if (m.alive && m.prayer) out.push({ id: m.id, name: nameOfId(state, m.id), need: m.prayer.need, text: prayerText(m), since: r3(m.prayer.t),
+  for (const m of state.world?.minds || []) if (m.alive && m.prayer) out.push({ id: m.id, name: nameOfId(state, m.id), need: m.prayer.need, text: prayerText(m, state), since: r3(m.prayer.t),
     nation: state.civ?.nations?.[personOf(state, m.id)?.nat]?.name || null, to: m.allegiance === 'true' ? 'the true god' : godNm(state, m.allegiance) || 'anyone listening', faith: r3(m.faith), x: r3(m.x), y: r3(m.y) });
   out.sort((a, b) => b.since - a.since || a.id - b.id);
   return out.slice(0, n);
